@@ -5,10 +5,13 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>나만의 사인 만들기 ✍️</title>
 
-<!-- 언어별 무료 손글씨 폰트 (Google Fonts, 상업 이용 가능) -->
+<!-- 언어별 무료 손글씨 폰트 (Google Fonts, 상업 이용 가능) — 타이핑 미리보기/폴백용 -->
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Nanum+Brush+Script&family=Nanum+Pen+Script&family=Gaegu:wght@700&family=Dancing+Script:wght@700&family=Great+Vibes&family=UnifrakturMaguntia&family=Yellowtail&family=Zhi+Mang+Xing&family=Long+Cang&family=Yuji+Mai&family=Yuji+Syuku&display=swap" rel="stylesheet">
+
+<!-- 벡터 획 애니메이션용: 폰트를 외곽선 경로로 파싱 -->
+<script src="https://cdn.jsdelivr.net/npm/opentype.js@1.3.4/dist/opentype.min.js"></script>
 
 <style>
   :root{
@@ -93,166 +96,290 @@
 </div>
 
 <script>
-// ── 언어별 폰트 매핑 (없으면 손글씨 대체) ────────────────────────
+// ── 언어별 폰트 매핑 (표시 이름) ─────────────────────────────────
 const FONTS = {
-  ko:{ basic:'"Nanum Pen Script"', cute:'"Gaegu"', idol:'"Nanum Brush Script"',
-       ceo:'"Nanum Brush Script"', politician:'"Nanum Brush Script"', medieval:'"UnifrakturMaguntia"' },
-  en:{ basic:'"Dancing Script"', cute:'"Gaegu"', idol:'"Great Vibes"',
-       ceo:'"Yellowtail"', politician:'"Yellowtail"', medieval:'"UnifrakturMaguntia"' },
-  zh:{ basic:'"Long Cang"', cute:'"Long Cang"', idol:'"Zhi Mang Xing"',
-       ceo:'"Zhi Mang Xing"', politician:'"Zhi Mang Xing"', medieval:'"Long Cang"' },
-  ja:{ basic:'"Yuji Syuku"', cute:'"Yuji Mai"', idol:'"Yuji Mai"',
-       ceo:'"Yuji Syuku"', politician:'"Yuji Syuku"', medieval:'"Yuji Syuku"' },
+  ko:{ basic:'Nanum Pen Script', cute:'Gaegu', idol:'Nanum Brush Script',
+       ceo:'Nanum Brush Script', politician:'Nanum Brush Script', medieval:'UnifrakturMaguntia' },
+  en:{ basic:'Dancing Script', cute:'Gaegu', idol:'Great Vibes',
+       ceo:'Yellowtail', politician:'Yellowtail', medieval:'UnifrakturMaguntia' },
+  zh:{ basic:'Long Cang', cute:'Long Cang', idol:'Zhi Mang Xing',
+       ceo:'Zhi Mang Xing', politician:'Zhi Mang Xing', medieval:'Long Cang' },
+  ja:{ basic:'Yuji Syuku', cute:'Yuji Mai', idol:'Yuji Mai',
+       ceo:'Yuji Syuku', politician:'Yuji Syuku', medieval:'Yuji Syuku' },
 };
 
-// ── 스타일 정의: 폰트 느낌 + 장식 규칙 ───────────────────────────
+// ── 폰트 파일(TTF) 경로 (jsDelivr → google/fonts, CORS 허용) ─────
+const TTF_BASE='https://cdn.jsdelivr.net/gh/google/fonts@main/';
+const TTF = {
+  'Nanum Pen Script':'ofl/nanumpenscript/NanumPenScript-Regular.ttf',
+  'Nanum Brush Script':'ofl/nanumbrushscript/NanumBrushScript-Regular.ttf',
+  'Gaegu':'ofl/gaegu/Gaegu-Bold.ttf',
+  'Dancing Script':'ofl/dancingscript/DancingScript%5Bwght%5D.ttf',
+  'Great Vibes':'ofl/greatvibes/GreatVibes-Regular.ttf',
+  'Yellowtail':'apache/yellowtail/Yellowtail-Regular.ttf',
+  'UnifrakturMaguntia':'ofl/unifrakturmaguntia/UnifrakturMaguntia-Book.ttf',
+  'Zhi Mang Xing':'ofl/zhimangxing/ZhiMangXing-Regular.ttf',
+  'Long Cang':'ofl/longcang/LongCang-Regular.ttf',
+  'Yuji Syuku':'ofl/yujisyuku/YujiSyuku-Regular.ttf',
+  'Yuji Mai':'ofl/yujimai/YujiMai-Regular.ttf',
+};
+
+// ── 스타일 정의 ─────────────────────────────────────────────────
 const STYLES = [
-  {key:'basic',     nm:'기본형',      ds:'부드러운 손글씨',      size:100, slant:-0.03, weight:'normal', flourish:'line',   deco:null,   color:'#2b2340'},
-  {key:'cute',      nm:'귀여운형',    ds:'동글동글 + 하트',      size:96,  slant:0,     weight:'bold',   flourish:'dots',   deco:'♥',    color:'#ff6fae'},
-  {key:'idol',      nm:'아이돌st',    ds:'화려한 스월 + 별',     size:104, slant:-0.14, weight:'normal', flourish:'swoosh', deco:'★',    color:'#7c5cff'},
-  {key:'ceo',       nm:'CEO/리더st',  ds:'각진 필체 + 단호한 밑줄',size:98, slant:-0.08, weight:'bold',   flourish:'double', deco:null,   color:'#1e2a44'},
-  {key:'politician',nm:'정치인st',    ds:'크고 자신감 있게',     size:112, slant:-0.10, weight:'bold',   flourish:'double', deco:null,   color:'#123'},
-  {key:'medieval',  nm:'중세 필기체', ds:'고딕 블랙레터',        size:92,  slant:0,     weight:'normal', flourish:'none',   deco:null,   color:'#3a2c1a'},
+  {key:'basic',     nm:'기본형',      ds:'부드러운 손글씨',        size:100, slant:-0.03, flourish:'line',   deco:null, color:'#2b2340'},
+  {key:'cute',      nm:'귀여운형',    ds:'동글동글 + 하트',        size:96,  slant:0,     flourish:'dots',   deco:'♥',  color:'#ff6fae'},
+  {key:'idol',      nm:'아이돌st',    ds:'화려한 스월 + 별',       size:104, slant:-0.14, flourish:'swoosh', deco:'★',  color:'#7c5cff'},
+  {key:'ceo',       nm:'CEO/리더st',  ds:'각진 필체 + 단호한 밑줄', size:98,  slant:-0.08, flourish:'double', deco:null, color:'#1e2a44'},
+  {key:'politician',nm:'정치인st',    ds:'크고 자신감 있게',       size:112, slant:-0.10, flourish:'double', deco:null, color:'#122a44'},
+  {key:'medieval',  nm:'중세 필기체', ds:'고딕 블랙레터',          size:92,  slant:0,     flourish:'none',   deco:null, color:'#3a2c1a'},
 ];
 
 let curLang='ko', curStyle='basic', jitter=0;
 
-// 스타일 카드 렌더
+// ── UI ──────────────────────────────────────────────────────────
 const grid=document.getElementById('styleGrid');
 STYLES.forEach((s,i)=>{
   const d=document.createElement('div');
   d.className='style'+(i===0?' on':''); d.dataset.key=s.key;
   d.innerHTML=`<div class="nm">${s.nm}</div><div class="ds">${s.ds}</div>`;
-  d.onclick=()=>{curStyle=s.key; document.querySelectorAll('.style').forEach(x=>x.classList.remove('on')); d.classList.add('on'); draw();};
+  d.onclick=()=>{curStyle=s.key; document.querySelectorAll('.style').forEach(x=>x.classList.remove('on')); d.classList.add('on'); animate();};
   grid.appendChild(d);
 });
 document.querySelectorAll('#langRow .chip').forEach(c=>{
-  c.onclick=()=>{curLang=c.dataset.lang; document.querySelectorAll('#langRow .chip').forEach(x=>x.classList.remove('on')); c.classList.add('on'); draw();};
+  c.onclick=()=>{curLang=c.dataset.lang; document.querySelectorAll('#langRow .chip').forEach(x=>x.classList.remove('on')); c.classList.add('on'); animate();};
 });
 document.getElementById('name').addEventListener('input',showStatic);
-document.getElementById('rnd').onclick=()=>{jitter=(jitter+1)%5; draw();};
+document.getElementById('rnd').onclick=()=>{jitter=(jitter+1)%5; animate();};
+document.getElementById('replay').onclick=animate;
 
-// ── 캔버스 + 획 애니메이션 ─────────────────────────────────────
+// ── 캔버스 ──────────────────────────────────────────────────────
 const cv=document.getElementById('cv'), ctx=cv.getContext('2d');
-const buf=document.createElement('canvas'); buf.width=cv.width; buf.height=cv.height;
-const bctx=buf.getContext('2d');
+const W=cv.width, H=cv.height;
 let animId=0;
+let lastLayout=null, lastStyle=null;   // PNG 저장용
 
-// 사인 전체를 주어진 컨텍스트에 정적으로 그린다
-function renderStatic(g){
-  const name=(document.getElementById('name').value||'이름').trim();
-  const s=STYLES.find(x=>x.key===curStyle);
-  const font=FONTS[curLang][curStyle]||'"Nanum Pen Script"';
-  const j=jitter*0.02;
+// 오프스크린 SVG path — 길이/좌표 측정 전용
+const SVGNS='http://www.w3.org/2000/svg';
+const measSvg=document.createElementNS(SVGNS,'svg');
+measSvg.setAttribute('width','0'); measSvg.setAttribute('height','0');
+measSvg.style.position='absolute'; measSvg.style.left='-9999px';
+const measPath=document.createElementNS(SVGNS,'path');
+measSvg.appendChild(measPath); document.body.appendChild(measSvg);
+function pathLength(d){ measPath.setAttribute('d',d); return measPath.getTotalLength(); }
+function pathPointAt(d,l){ measPath.setAttribute('d',d); return measPath.getPointAtLength(l); }
 
-  g.clearRect(0,0,buf.width,buf.height);
-  g.save();
-  g.translate(buf.width/2, buf.height/2+18);
-  g.rotate(s.slant+j);
-  g.textAlign='center'; g.textBaseline='middle';
-  g.fillStyle=s.color;
-  g.font=`${s.weight} ${s.size}px ${font}, "Nanum Brush Script", cursive`;
+// ── 폰트 로딩 (캐시) ────────────────────────────────────────────
+const fontCache={};
+function loadFont(family){
+  if(fontCache[family]){ return Promise.resolve(fontCache[family]); }
+  const rel=TTF[family];
+  if(!rel || typeof opentype==='undefined'){ return Promise.reject(new Error('no-font')); }
+  return fetch(TTF_BASE+rel)
+    .then(r=>{ if(!r.ok){ throw new Error('http '+r.status); } return r.arrayBuffer(); })
+    .then(ab=>{ const f=opentype.parse(ab); fontCache[family]=f; return f; });
+}
 
-  // 이름이 길면 폭에 맞춰 자동 축소
+// ── 레이아웃: 이름을 글자별 벡터 경로로 ──────────────────────────
+function buildLayout(font, name, s){
+  const cx=W/2, cy=H/2+6;
+  // 폭/높이에 맞춰 폰트 크기 축소
   let fs=s.size;
-  while(g.measureText(name).width>640 && fs>28){ fs-=4; g.font=`${s.weight} ${fs}px ${font}, cursive`; }
-  g.fillText(name,0,0);
-  const w=Math.min(g.measureText(name).width,660);
-
-  // 장식(밑줄/스월 등)
-  g.strokeStyle=s.color; g.lineWidth=Math.max(3,fs/28); g.lineCap='round';
-  const y=fs*0.42;
-  if(s.flourish==='line'){ g.beginPath(); g.moveTo(-w/2,y); g.lineTo(w/2,y); g.stroke(); }
-  if(s.flourish==='double'){ g.beginPath(); g.moveTo(-w/2,y); g.lineTo(w/2,y);
-    g.moveTo(-w/2*0.8,y+10); g.lineTo(w/2*0.8,y+10); g.stroke(); }
-  if(s.flourish==='swoosh'){ g.beginPath(); g.moveTo(-w/2-10,y);
-    g.bezierCurveTo(-w/4,y+40, w/4,y-40, w/2+40,y-8); g.stroke(); }
-  if(s.flourish==='dots'){ for(let i=-1;i<=1;i++){ g.beginPath(); g.arc(i*30,y+8,4,0,7); g.fill(); } }
-
-  // 심볼(별/하트)
-  if(s.deco){ g.font=`${fs*0.5}px "Segoe UI Emoji",sans-serif`; g.fillText(s.deco, w/2+30, -fs*0.2); }
-  g.restore();
-}
-
-// 버퍼에서 잉크 좌우 범위와 각 x열의 최상단 y(펜 경로)를 계산
-function scanInk(){
-  const d=bctx.getImageData(0,0,buf.width,buf.height).data;
-  let minX=buf.width, maxX=0;
-  const topY=new Int16Array(buf.width).fill(-1);
-  for(let x=0;x<buf.width;x++){
-    for(let y=0;y<buf.height;y++){
-      if(d[(y*buf.width+x)*4+3]>10){
-        topY[x]=y;
-        if(x<minX)minX=x; if(x>maxX)maxX=x;
-        break;
-      }
-    }
+  for(let i=0;i<40;i++){
+    const bb=font.getPath(name,0,0,fs).getBoundingBox();
+    if((bb.x2-bb.x1)<=650 && (bb.y2-bb.y1)<=210){ break; }
+    fs-=4; if(fs<=28){ fs=28; break; }
   }
-  if(maxX<minX){ minX=0; maxX=0; }
-  return {minX,maxX,topY};
+  const bb=font.getPath(name,0,0,fs).getBoundingBox();
+  const tx=cx-(bb.x1+bb.x2)/2, ty=cy-(bb.y1+bb.y2)/2;
+  const raw=font.getPaths(name, tx, ty, fs);
+  const glyphs=[];
+  raw.forEach(p=>{
+    const d=p.toPathData(2);
+    if(!d){ return; }
+    glyphs.push({d, len:Math.max(1,pathLength(d)), p2d:new Path2D(d)});
+  });
+  const w=bb.x2-bb.x1, bh=bb.y2-bb.y1;
+  return {fs, cx, cy, slant:s.slant+jitter*0.02, glyphs, w, bh, color:s.color, flourish:s.flourish, deco:s.deco,
+          flourishY:cy+bh/2+Math.max(10,fs*0.12)};
 }
 
-// 펜(✏️) — 팁이 (x,y)에 오도록
+// 좌표를 (cx,cy) 중심으로 slant 회전
+function rot(x,y,cx,cy,a){
+  const dx=x-cx, dy=y-cy, c=Math.cos(a), s=Math.sin(a);
+  return {x:cx+dx*c-dy*s, y:cy+dx*s+dy*c};
+}
+
+// ── 정적 렌더 (완성본): 애니메이션 최종 상태 / PNG ───────────────
+function renderSolid(L){
+  ctx.setTransform(1,0,0,1,0,0);
+  ctx.clearRect(0,0,W,H);
+  ctx.save();
+  ctx.translate(L.cx,L.cy); ctx.rotate(L.slant); ctx.translate(-L.cx,-L.cy);
+  ctx.fillStyle=L.color;
+  L.glyphs.forEach(g=>ctx.fill(g.p2d));
+  drawFlourish(L,1);
+  ctx.restore();
+  drawDeco(L,1);
+}
+
+// 장식(밑줄/스월/도트) — fp: 0~1 진행도
+function drawFlourish(L,fp){
+  ctx.strokeStyle=L.color; ctx.fillStyle=L.color;
+  ctx.lineWidth=Math.max(3,L.fs/26); ctx.lineCap='round';
+  const x0=L.cx-L.w/2, x1=L.cx-L.w/2+L.w*fp, y=L.flourishY;
+  if(L.flourish==='line'){ ctx.beginPath(); ctx.moveTo(x0,y); ctx.lineTo(x1,y); ctx.stroke(); }
+  if(L.flourish==='double'){
+    ctx.beginPath(); ctx.moveTo(x0,y); ctx.lineTo(x1,y);
+    const a=L.cx-L.w*0.4, b=L.cx-L.w*0.4+L.w*0.8*fp;
+    ctx.moveTo(a,y+10); ctx.lineTo(b,y+10); ctx.stroke();
+  }
+  if(L.flourish==='swoosh'){
+    ctx.beginPath(); ctx.moveTo(x0-10,y);
+    ctx.bezierCurveTo(L.cx-L.w/4,y+40, L.cx+L.w/4,y-40, x0-10+(L.w+50)*fp, y-8*fp);
+    ctx.stroke();
+  }
+  if(L.flourish==='dots' && fp>0.6){ for(let i=-1;i<=1;i++){ ctx.beginPath(); ctx.arc(L.cx+i*30,y+8,4,0,7); ctx.fill(); } }
+}
+
+// 심볼(별/하트) — 회전 밖에서 그림
+function drawDeco(L,fp){
+  if(!L.deco || fp<0.5){ return; }
+  ctx.setTransform(1,0,0,1,0,0);
+  ctx.globalAlpha=Math.min(1,(fp-0.5)*2);
+  ctx.fillStyle=L.color;
+  ctx.font=`${L.fs*0.5}px "Segoe UI Emoji",sans-serif`;
+  ctx.textAlign='left'; ctx.textBaseline='middle';
+  ctx.fillText(L.deco, L.cx+L.w/2+18, L.cy-L.bh*0.3);
+  ctx.globalAlpha=1;
+}
+
+// 펜(✏️) — 팁이 (x,y)에 오도록 (회전 밖)
 function drawPen(x,y){
+  ctx.setTransform(1,0,0,1,0,0);
   ctx.font='34px "Segoe UI Emoji",sans-serif';
   ctx.textAlign='left'; ctx.textBaseline='bottom';
   ctx.fillText('✏️', x-6, y+18);
 }
 
-// 정적 표시 (타이핑 중 즉시 미리보기, 실행 중 애니메이션은 중단)
+// ── 핵심: 글자를 획 순서대로 따라 그리는 애니메이션 ─────────────
+function animate(){
+  const name=(document.getElementById('name').value||'이름').trim();
+  const s=STYLES.find(x=>x.key===curStyle);
+  const family=FONTS[curLang][curStyle];
+  const id=++animId;
+
+  // 로딩 표시
+  ctx.setTransform(1,0,0,1,0,0); ctx.clearRect(0,0,W,H);
+  ctx.fillStyle='#b8b0cc'; ctx.font='20px "Malgun Gothic",sans-serif';
+  ctx.textAlign='center'; ctx.textBaseline='middle';
+  ctx.fillText('✍️ 준비 중…', W/2, H/2);
+
+  loadFont(family).then(font=>{
+    if(id!==animId){ return; }
+    const L=buildLayout(font, name, s);
+    lastLayout=L; lastStyle=s;
+    if(!L.glyphs.length){ renderSolid(L); return; }
+
+    const total=L.glyphs.reduce((a,g)=>a+g.len,0);
+    const cum=[]; let acc=0;
+    L.glyphs.forEach(g=>{ cum.push(acc); acc+=g.len; });
+    const durName=Math.min(2600, Math.max(900, 600+total*1.1));
+    const durFlo=350, durAll=durName+durFlo;
+    let start=null;
+
+    function frame(now){
+      if(id!==animId){ return; }
+      if(start===null){ start=now; }
+      const el=now-start;
+      const pName=Math.min(1, el/durName);
+      const eName=pName<0.5?2*pName*pName:1-Math.pow(-2*pName+2,2)/2;
+      const drawn=total*eName;
+
+      ctx.setTransform(1,0,0,1,0,0); ctx.clearRect(0,0,W,H);
+      ctx.save();
+      ctx.translate(L.cx,L.cy); ctx.rotate(L.slant); ctx.translate(-L.cx,-L.cy);
+      ctx.fillStyle=L.color; ctx.strokeStyle=L.color;
+      ctx.lineWidth=Math.max(2,L.fs*0.03); ctx.lineJoin='round'; ctx.lineCap='round';
+
+      let penLocal=null;
+      for(let i=0;i<L.glyphs.length;i++){
+        const g=L.glyphs[i], gStart=cum[i], gEnd=cum[i]+g.len;
+        if(drawn>=gEnd){ ctx.fill(g.p2d); }               // 완성된 글자: 채움
+        else if(drawn>gStart){                             // 그리는 중인 글자: 획 진행
+          const local=drawn-gStart;
+          ctx.setLineDash([g.len,g.len]);
+          ctx.lineDashOffset=g.len-local;
+          ctx.stroke(g.p2d);
+          ctx.setLineDash([]);
+          penLocal=pathPointAt(g.d, Math.min(local,g.len));
+        }
+      }
+      // 장식은 글자 다 그린 뒤
+      const floP=Math.min(1, Math.max(0,(el-durName)/durFlo));
+      if(pName>=1){ drawFlourish(L, floP<=0?0.0001:floP); }
+      ctx.restore();
+
+      drawDeco(L, pName>=1?0.5+floP*0.5:0);
+
+      if(el<durAll){
+        if(penLocal){ const pp=rot(penLocal.x,penLocal.y,L.cx,L.cy,L.slant); drawPen(pp.x,pp.y); }
+        requestAnimationFrame(frame);
+      }else{
+        renderSolid(L);   // 깔끔한 최종본
+      }
+    }
+    requestAnimationFrame(frame);
+  }).catch(()=>{
+    if(id!==animId){ return; }
+    drawFallback();       // 폰트 로드 실패 → 기존 좌→우 방식
+  });
+}
+
+// ── 폴백: CSS 폰트 + 좌→우 reveal (opentype 실패 시) ────────────
+const buf=document.createElement('canvas'); buf.width=W; buf.height=H;
+const bctx=buf.getContext('2d');
+function renderStatic(g){
+  const name=(document.getElementById('name').value||'이름').trim();
+  const s=STYLES.find(x=>x.key===curStyle);
+  const font=`"${FONTS[curLang][curStyle]}"`;
+  g.clearRect(0,0,W,H); g.save();
+  g.translate(W/2, H/2+18); g.rotate(s.slant+jitter*0.02);
+  g.textAlign='center'; g.textBaseline='middle'; g.fillStyle=s.color;
+  g.font=`${s.size}px ${font}, "Nanum Brush Script", cursive`;
+  let fs=s.size;
+  while(g.measureText(name).width>640 && fs>28){ fs-=4; g.font=`${fs}px ${font}, cursive`; }
+  g.fillText(name,0,0);
+  g.restore();
+}
 function showStatic(){
   animId++;
-  renderStatic(bctx);
-  ctx.clearRect(0,0,cv.width,cv.height);
-  ctx.drawImage(buf,0,0);
-}
-
-// 왼쪽→오른쪽으로 슥슥 써지는 애니메이션
-function draw(){
-  renderStatic(bctx);
-  const ink=scanInk();
-  const id=++animId;
-  const dur=1500;
-  let start=null;
-  function frame(now){
-    if(id!==animId){ return; }
-    if(start===null){ start=now; }
-    let t=(now-start)/dur; if(t>1){ t=1; }
-    const e = t<0.5 ? 2*t*t : 1-Math.pow(-2*t+2,2)/2;   // easeInOut
-    const revealX = ink.minX + (ink.maxX-ink.minX+2)*e;
-
-    ctx.clearRect(0,0,cv.width,cv.height);
-    ctx.save();
-    ctx.beginPath(); ctx.rect(0,0,revealX,cv.height); ctx.clip();
-    ctx.drawImage(buf,0,0);
-    ctx.restore();
-
-    if(t<1){
-      let py=ink.topY[Math.min(buf.width-1,Math.max(0,Math.floor(revealX)))];
-      if(py<0){ py=cv.height/2; }
-      drawPen(revealX,py);
-      requestAnimationFrame(frame);
-    }else{
-      ctx.clearRect(0,0,cv.width,cv.height);
-      ctx.drawImage(buf,0,0);
-    }
+  // 폰트가 이미 캐시돼 있으면 벡터 완성본, 아니면 CSS 폰트로 즉시 미리보기
+  const family=FONTS[curLang][curStyle];
+  if(fontCache[family]){
+    const s=STYLES.find(x=>x.key===curStyle);
+    const name=(document.getElementById('name').value||'이름').trim();
+    const L=buildLayout(fontCache[family], name, s); lastLayout=L; lastStyle=s;
+    if(L.glyphs.length){ renderSolid(L); return; }
   }
-  requestAnimationFrame(frame);
+  renderStatic(ctx);
+}
+function drawFallback(){
+  renderStatic(bctx);
+  ctx.setTransform(1,0,0,1,0,0); ctx.clearRect(0,0,W,H); ctx.drawImage(buf,0,0);
 }
 
-// 초기: 즉시 한 번 써 내려가고, 폰트 로드되면 정확한 글씨로 다시 재생
-draw();
-document.fonts.ready.then(draw);
-
-document.getElementById('replay').onclick=draw;
-
-// PNG 저장 (완성본)
+// ── PNG 저장 (완성본) ───────────────────────────────────────────
 document.getElementById('dl').onclick=()=>{
-  renderStatic(bctx);
+  if(lastLayout){ renderSolid(lastLayout); }
+  else { drawFallback(); }
   const a=document.createElement('a');
   a.download=`sign_${document.getElementById('name').value||'my'}.png`;
-  a.href=buf.toDataURL('image/png'); a.click();
+  a.href=cv.toDataURL('image/png'); a.click();
 };
+
+// ── 시작 ────────────────────────────────────────────────────────
+if(document.readyState!=='loading'){ animate(); }
+else { window.addEventListener('DOMContentLoaded', animate); }
 </script>
 </body>
 </html>
