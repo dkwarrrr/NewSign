@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>나만의 사인 만들기 ✍️</title>
+
+<!-- 언어별 무료 손글씨 폰트 (Google Fonts, 상업 이용 가능) -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Nanum+Brush+Script&family=Nanum+Pen+Script&family=Gaegu:wght@700&family=Dancing+Script:wght@700&family=Great+Vibes&family=UnifrakturMaguntia&family=Yellowtail&family=Zhi+Mang+Xing&family=Long+Cang&family=Yuji+Mai&family=Yuji+Syuku&display=swap" rel="stylesheet">
+
+<style>
+  :root{
+    --bg:#f4f1ff; --card:#ffffff; --ink:#2b2340; --accent:#7c5cff; --accent2:#ff6fae;
+    --line:#e7e2f5;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; font-family:"Malgun Gothic","Segoe UI",sans-serif;
+    background:linear-gradient(160deg,#f4f1ff,#ffeef6); color:var(--ink);
+    min-height:100vh; padding:24px;
+  }
+  .wrap{max-width:860px; margin:0 auto}
+  h1{font-size:26px; margin:4px 0 2px; text-align:center}
+  .sub{text-align:center; color:#8a82a3; margin:0 0 22px; font-size:14px}
+
+  .card{background:var(--card); border:1px solid var(--line); border-radius:18px;
+        padding:20px; box-shadow:0 8px 30px rgba(90,60,180,.08); margin-bottom:18px}
+
+  label{font-weight:700; font-size:13px; display:block; margin-bottom:8px; color:#5b5375}
+  input[type=text]{
+    width:100%; padding:14px 16px; font-size:18px; border:2px solid var(--line);
+    border-radius:12px; outline:none; transition:.15s;
+  }
+  input[type=text]:focus{border-color:var(--accent)}
+
+  .row{display:flex; gap:10px; flex-wrap:wrap; margin-top:14px}
+  .chip{padding:9px 14px; border:2px solid var(--line); border-radius:999px; background:#fff;
+        cursor:pointer; font-size:14px; font-weight:600; transition:.12s}
+  .chip.on{border-color:var(--accent); background:var(--accent); color:#fff}
+
+  .styles{display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); gap:10px; margin-top:6px}
+  .style{border:2px solid var(--line); border-radius:14px; padding:14px 10px; text-align:center;
+         cursor:pointer; transition:.12s; background:#fff}
+  .style:hover{transform:translateY(-2px)}
+  .style.on{border-color:var(--accent2); background:#fff0f7}
+  .style .nm{font-weight:700; font-size:14px}
+  .style .ds{font-size:11px; color:#9a92b0; margin-top:3px}
+
+  .stage{display:flex; flex-direction:column; align-items:center; gap:14px}
+  canvas{max-width:100%; border-radius:14px; background:
+    repeating-conic-gradient(#faf8ff 0% 25%, #fff 0% 50%) 50% / 22px 22px; border:1px solid var(--line)}
+  .actions{display:flex; gap:10px; flex-wrap:wrap; justify-content:center}
+  button.act{padding:12px 20px; border:none; border-radius:12px; font-size:15px; font-weight:700;
+             cursor:pointer; color:#fff; background:var(--accent)}
+  button.ghost{background:#fff; color:var(--accent); border:2px solid var(--accent)}
+  .note{font-size:12px; color:#9a92b0; text-align:center; margin-top:8px; line-height:1.6}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>✍️ 나만의 사인 만들기</h1>
+  <p class="sub">이름을 쓰고, 언어와 스타일을 고르면 나만의 사인이 완성돼요!</p>
+
+  <div class="card">
+    <label>이름 입력</label>
+    <input type="text" id="name" placeholder="예) 홍길동 / Alex / 王小明 / さくら" value="홍길동" maxlength="20" />
+
+    <label style="margin-top:16px">언어</label>
+    <div class="row" id="langRow">
+      <div class="chip on" data-lang="ko">한글</div>
+      <div class="chip" data-lang="en">English</div>
+      <div class="chip" data-lang="zh">中文</div>
+      <div class="chip" data-lang="ja">日本語</div>
+    </div>
+
+    <label style="margin-top:16px">스타일</label>
+    <div class="styles" id="styleGrid"></div>
+  </div>
+
+  <div class="card stage">
+    <canvas id="cv" width="760" height="300"></canvas>
+    <div class="actions">
+      <button class="act" id="dl">PNG로 저장 ⬇</button>
+      <button class="act ghost" id="rnd">랜덤 변형 🎲</button>
+    </div>
+    <p class="note">
+      ※ 실제 유명인의 사인이 아니라 <b>스타일 유형</b>만 흉내 낸 결과입니다. 자유롭게 사용하세요.
+    </p>
+  </div>
+</div>
+
+<script>
+// ── 언어별 폰트 매핑 (없으면 손글씨 대체) ────────────────────────
+const FONTS = {
+  ko:{ basic:'"Nanum Pen Script"', cute:'"Gaegu"', idol:'"Nanum Brush Script"',
+       ceo:'"Nanum Brush Script"', politician:'"Nanum Brush Script"', medieval:'"UnifrakturMaguntia"' },
+  en:{ basic:'"Dancing Script"', cute:'"Gaegu"', idol:'"Great Vibes"',
+       ceo:'"Yellowtail"', politician:'"Yellowtail"', medieval:'"UnifrakturMaguntia"' },
+  zh:{ basic:'"Long Cang"', cute:'"Long Cang"', idol:'"Zhi Mang Xing"',
+       ceo:'"Zhi Mang Xing"', politician:'"Zhi Mang Xing"', medieval:'"Long Cang"' },
+  ja:{ basic:'"Yuji Syuku"', cute:'"Yuji Mai"', idol:'"Yuji Mai"',
+       ceo:'"Yuji Syuku"', politician:'"Yuji Syuku"', medieval:'"Yuji Syuku"' },
+};
+
+// ── 스타일 정의: 폰트 느낌 + 장식 규칙 ───────────────────────────
+const STYLES = [
+  {key:'basic',     nm:'기본형',      ds:'부드러운 손글씨',      size:100, slant:-0.03, weight:'normal', flourish:'line',   deco:null,   color:'#2b2340'},
+  {key:'cute',      nm:'귀여운형',    ds:'동글동글 + 하트',      size:96,  slant:0,     weight:'bold',   flourish:'dots',   deco:'♥',    color:'#ff6fae'},
+  {key:'idol',      nm:'아이돌st',    ds:'화려한 스월 + 별',     size:104, slant:-0.14, weight:'normal', flourish:'swoosh', deco:'★',    color:'#7c5cff'},
+  {key:'ceo',       nm:'CEO/리더st',  ds:'각진 필체 + 단호한 밑줄',size:98, slant:-0.08, weight:'bold',   flourish:'double', deco:null,   color:'#1e2a44'},
+  {key:'politician',nm:'정치인st',    ds:'크고 자신감 있게',     size:112, slant:-0.10, weight:'bold',   flourish:'double', deco:null,   color:'#123'},
+  {key:'medieval',  nm:'중세 필기체', ds:'고딕 블랙레터',        size:92,  slant:0,     weight:'normal', flourish:'none',   deco:null,   color:'#3a2c1a'},
+];
+
+let curLang='ko', curStyle='basic', jitter=0;
+
+// 스타일 카드 렌더
+const grid=document.getElementById('styleGrid');
+STYLES.forEach((s,i)=>{
+  const d=document.createElement('div');
+  d.className='style'+(i===0?' on':''); d.dataset.key=s.key;
+  d.innerHTML=`<div class="nm">${s.nm}</div><div class="ds">${s.ds}</div>`;
+  d.onclick=()=>{curStyle=s.key; document.querySelectorAll('.style').forEach(x=>x.classList.remove('on')); d.classList.add('on'); draw();};
+  grid.appendChild(d);
+});
+document.querySelectorAll('#langRow .chip').forEach(c=>{
+  c.onclick=()=>{curLang=c.dataset.lang; document.querySelectorAll('#langRow .chip').forEach(x=>x.classList.remove('on')); c.classList.add('on'); draw();};
+});
+document.getElementById('name').addEventListener('input',draw);
+document.getElementById('rnd').onclick=()=>{jitter=(jitter+1)%5; draw();};
+
+// ── 캔버스 그리기 ────────────────────────────────────────────────
+const cv=document.getElementById('cv'), ctx=cv.getContext('2d');
+function draw(){
+  const name=(document.getElementById('name').value||'이름').trim();
+  const s=STYLES.find(x=>x.key===curStyle);
+  const font=FONTS[curLang][curStyle]||'"Nanum Pen Script"';
+  const j=jitter*0.02;
+
+  ctx.clearRect(0,0,cv.width,cv.height);
+  ctx.save();
+  ctx.translate(cv.width/2, cv.height/2+18);
+  ctx.rotate(s.slant+j);
+  ctx.textAlign='center'; ctx.textBaseline='middle';
+  ctx.fillStyle=s.color;
+  ctx.font=`${s.weight} ${s.size}px ${font}, "Nanum Brush Script", cursive`;
+
+  // 이름이 길면 폭에 맞춰 자동 축소
+  let fs=s.size;
+  while(ctx.measureText(name).width>640 && fs>28){ fs-=4; ctx.font=`${s.weight} ${fs}px ${font}, cursive`; }
+  ctx.fillText(name,0,0);
+  const w=Math.min(ctx.measureText(name).width,660);
+
+  // 장식(밑줄/스월 등)
+  ctx.strokeStyle=s.color; ctx.lineWidth=Math.max(3,fs/28); ctx.lineCap='round';
+  const y=fs*0.42;
+  if(s.flourish==='line'){ ctx.beginPath(); ctx.moveTo(-w/2,y); ctx.lineTo(w/2,y); ctx.stroke(); }
+  if(s.flourish==='double'){ ctx.beginPath(); ctx.moveTo(-w/2,y); ctx.lineTo(w/2,y);
+    ctx.moveTo(-w/2*0.8,y+10); ctx.lineTo(w/2*0.8,y+10); ctx.stroke(); }
+  if(s.flourish==='swoosh'){ ctx.beginPath(); ctx.moveTo(-w/2-10,y);
+    ctx.bezierCurveTo(-w/4,y+40, w/4,y-40, w/2+40,y-8); ctx.stroke(); }
+  if(s.flourish==='dots'){ for(let i=-1;i<=1;i++){ ctx.beginPath(); ctx.arc(i*30,y+8,4,0,7); ctx.fill(); } }
+
+  // 심볼(별/하트)
+  if(s.deco){ ctx.font=`${fs*0.5}px "Segoe UI Emoji",sans-serif`; ctx.fillText(s.deco, w/2+30, -fs*0.2); }
+  ctx.restore();
+}
+
+// 폰트 로드 완료 후 다시 그리기
+document.fonts.ready.then(draw);
+setTimeout(draw,300); setTimeout(draw,1200);
+draw();
+
+// PNG 저장
+document.getElementById('dl').onclick=()=>{
+  const a=document.createElement('a');
+  a.download=`sign_${document.getElementById('name').value||'my'}.png`;
+  a.href=cv.toDataURL('image/png'); a.click();
+};
+</script>
+</body>
+</html>
