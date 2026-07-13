@@ -82,6 +82,7 @@
   <div class="card stage">
     <canvas id="cv" width="760" height="300"></canvas>
     <div class="actions">
+      <button class="act ghost" id="replay">다시 쓰기 ▶</button>
       <button class="act" id="dl">PNG로 저장 ⬇</button>
       <button class="act ghost" id="rnd">랜덤 변형 🎲</button>
     </div>
@@ -128,56 +129,129 @@ STYLES.forEach((s,i)=>{
 document.querySelectorAll('#langRow .chip').forEach(c=>{
   c.onclick=()=>{curLang=c.dataset.lang; document.querySelectorAll('#langRow .chip').forEach(x=>x.classList.remove('on')); c.classList.add('on'); draw();};
 });
-document.getElementById('name').addEventListener('input',draw);
+document.getElementById('name').addEventListener('input',showStatic);
 document.getElementById('rnd').onclick=()=>{jitter=(jitter+1)%5; draw();};
 
-// ── 캔버스 그리기 ────────────────────────────────────────────────
+// ── 캔버스 + 획 애니메이션 ─────────────────────────────────────
 const cv=document.getElementById('cv'), ctx=cv.getContext('2d');
-function draw(){
+const buf=document.createElement('canvas'); buf.width=cv.width; buf.height=cv.height;
+const bctx=buf.getContext('2d');
+let animId=0;
+
+// 사인 전체를 주어진 컨텍스트에 정적으로 그린다
+function renderStatic(g){
   const name=(document.getElementById('name').value||'이름').trim();
   const s=STYLES.find(x=>x.key===curStyle);
   const font=FONTS[curLang][curStyle]||'"Nanum Pen Script"';
   const j=jitter*0.02;
 
-  ctx.clearRect(0,0,cv.width,cv.height);
-  ctx.save();
-  ctx.translate(cv.width/2, cv.height/2+18);
-  ctx.rotate(s.slant+j);
-  ctx.textAlign='center'; ctx.textBaseline='middle';
-  ctx.fillStyle=s.color;
-  ctx.font=`${s.weight} ${s.size}px ${font}, "Nanum Brush Script", cursive`;
+  g.clearRect(0,0,buf.width,buf.height);
+  g.save();
+  g.translate(buf.width/2, buf.height/2+18);
+  g.rotate(s.slant+j);
+  g.textAlign='center'; g.textBaseline='middle';
+  g.fillStyle=s.color;
+  g.font=`${s.weight} ${s.size}px ${font}, "Nanum Brush Script", cursive`;
 
   // 이름이 길면 폭에 맞춰 자동 축소
   let fs=s.size;
-  while(ctx.measureText(name).width>640 && fs>28){ fs-=4; ctx.font=`${s.weight} ${fs}px ${font}, cursive`; }
-  ctx.fillText(name,0,0);
-  const w=Math.min(ctx.measureText(name).width,660);
+  while(g.measureText(name).width>640 && fs>28){ fs-=4; g.font=`${s.weight} ${fs}px ${font}, cursive`; }
+  g.fillText(name,0,0);
+  const w=Math.min(g.measureText(name).width,660);
 
   // 장식(밑줄/스월 등)
-  ctx.strokeStyle=s.color; ctx.lineWidth=Math.max(3,fs/28); ctx.lineCap='round';
+  g.strokeStyle=s.color; g.lineWidth=Math.max(3,fs/28); g.lineCap='round';
   const y=fs*0.42;
-  if(s.flourish==='line'){ ctx.beginPath(); ctx.moveTo(-w/2,y); ctx.lineTo(w/2,y); ctx.stroke(); }
-  if(s.flourish==='double'){ ctx.beginPath(); ctx.moveTo(-w/2,y); ctx.lineTo(w/2,y);
-    ctx.moveTo(-w/2*0.8,y+10); ctx.lineTo(w/2*0.8,y+10); ctx.stroke(); }
-  if(s.flourish==='swoosh'){ ctx.beginPath(); ctx.moveTo(-w/2-10,y);
-    ctx.bezierCurveTo(-w/4,y+40, w/4,y-40, w/2+40,y-8); ctx.stroke(); }
-  if(s.flourish==='dots'){ for(let i=-1;i<=1;i++){ ctx.beginPath(); ctx.arc(i*30,y+8,4,0,7); ctx.fill(); } }
+  if(s.flourish==='line'){ g.beginPath(); g.moveTo(-w/2,y); g.lineTo(w/2,y); g.stroke(); }
+  if(s.flourish==='double'){ g.beginPath(); g.moveTo(-w/2,y); g.lineTo(w/2,y);
+    g.moveTo(-w/2*0.8,y+10); g.lineTo(w/2*0.8,y+10); g.stroke(); }
+  if(s.flourish==='swoosh'){ g.beginPath(); g.moveTo(-w/2-10,y);
+    g.bezierCurveTo(-w/4,y+40, w/4,y-40, w/2+40,y-8); g.stroke(); }
+  if(s.flourish==='dots'){ for(let i=-1;i<=1;i++){ g.beginPath(); g.arc(i*30,y+8,4,0,7); g.fill(); } }
 
   // 심볼(별/하트)
-  if(s.deco){ ctx.font=`${fs*0.5}px "Segoe UI Emoji",sans-serif`; ctx.fillText(s.deco, w/2+30, -fs*0.2); }
-  ctx.restore();
+  if(s.deco){ g.font=`${fs*0.5}px "Segoe UI Emoji",sans-serif`; g.fillText(s.deco, w/2+30, -fs*0.2); }
+  g.restore();
 }
 
-// 폰트 로드 완료 후 다시 그리기
-document.fonts.ready.then(draw);
-setTimeout(draw,300); setTimeout(draw,1200);
-draw();
+// 버퍼에서 잉크 좌우 범위와 각 x열의 최상단 y(펜 경로)를 계산
+function scanInk(){
+  const d=bctx.getImageData(0,0,buf.width,buf.height).data;
+  let minX=buf.width, maxX=0;
+  const topY=new Int16Array(buf.width).fill(-1);
+  for(let x=0;x<buf.width;x++){
+    for(let y=0;y<buf.height;y++){
+      if(d[(y*buf.width+x)*4+3]>10){
+        topY[x]=y;
+        if(x<minX)minX=x; if(x>maxX)maxX=x;
+        break;
+      }
+    }
+  }
+  if(maxX<minX){ minX=0; maxX=0; }
+  return {minX,maxX,topY};
+}
 
-// PNG 저장
+// 펜(✏️) — 팁이 (x,y)에 오도록
+function drawPen(x,y){
+  ctx.font='34px "Segoe UI Emoji",sans-serif';
+  ctx.textAlign='left'; ctx.textBaseline='bottom';
+  ctx.fillText('✏️', x-6, y+18);
+}
+
+// 정적 표시 (타이핑 중 즉시 미리보기, 실행 중 애니메이션은 중단)
+function showStatic(){
+  animId++;
+  renderStatic(bctx);
+  ctx.clearRect(0,0,cv.width,cv.height);
+  ctx.drawImage(buf,0,0);
+}
+
+// 왼쪽→오른쪽으로 슥슥 써지는 애니메이션
+function draw(){
+  renderStatic(bctx);
+  const ink=scanInk();
+  const id=++animId;
+  const dur=1500;
+  let start=null;
+  function frame(now){
+    if(id!==animId){ return; }
+    if(start===null){ start=now; }
+    let t=(now-start)/dur; if(t>1){ t=1; }
+    const e = t<0.5 ? 2*t*t : 1-Math.pow(-2*t+2,2)/2;   // easeInOut
+    const revealX = ink.minX + (ink.maxX-ink.minX+2)*e;
+
+    ctx.clearRect(0,0,cv.width,cv.height);
+    ctx.save();
+    ctx.beginPath(); ctx.rect(0,0,revealX,cv.height); ctx.clip();
+    ctx.drawImage(buf,0,0);
+    ctx.restore();
+
+    if(t<1){
+      let py=ink.topY[Math.min(buf.width-1,Math.max(0,Math.floor(revealX)))];
+      if(py<0){ py=cv.height/2; }
+      drawPen(revealX,py);
+      requestAnimationFrame(frame);
+    }else{
+      ctx.clearRect(0,0,cv.width,cv.height);
+      ctx.drawImage(buf,0,0);
+    }
+  }
+  requestAnimationFrame(frame);
+}
+
+// 초기: 즉시 한 번 써 내려가고, 폰트 로드되면 정확한 글씨로 다시 재생
+draw();
+document.fonts.ready.then(draw);
+
+document.getElementById('replay').onclick=draw;
+
+// PNG 저장 (완성본)
 document.getElementById('dl').onclick=()=>{
+  renderStatic(bctx);
   const a=document.createElement('a');
   a.download=`sign_${document.getElementById('name').value||'my'}.png`;
-  a.href=cv.toDataURL('image/png'); a.click();
+  a.href=buf.toDataURL('image/png'); a.click();
 };
 </script>
 </body>
