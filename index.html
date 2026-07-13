@@ -256,9 +256,9 @@ function drawDeco(L,fp){
 // 펜(✏️) — 팁이 (x,y)에 오도록 (회전 밖)
 function drawPen(x,y){
   ctx.setTransform(1,0,0,1,0,0);
-  ctx.font='34px "Segoe UI Emoji",sans-serif';
+  ctx.font='36px "Segoe UI Emoji",sans-serif';
   ctx.textAlign='left'; ctx.textBaseline='bottom';
-  ctx.fillText('✏️', x-6, y+18);
+  ctx.fillText('🖌️', x-6, y+18);
 }
 
 // ── 핵심: 글자를 획 순서대로 따라 그리는 애니메이션 ─────────────
@@ -305,12 +305,16 @@ function animate(){
       for(let i=0;i<L.glyphs.length;i++){
         const g=L.glyphs[i], gStart=cum[i], gEnd=cum[i]+g.len;
         if(drawn>=gEnd){ ctx.fill(g.p2d); }               // 완성된 글자: 채움
-        else if(drawn>gStart){                             // 그리는 중인 글자: 획 진행
+        else if(drawn>gStart){                             // 그리는 중인 글자: 굵은 브러쉬로 칠해 나감
           const local=drawn-gStart;
+          ctx.save();
+          ctx.clip(g.p2d);                                 // 글자 안쪽으로 제한
           ctx.setLineDash([g.len,g.len]);
           ctx.lineDashOffset=g.len-local;
+          ctx.lineWidth=L.fs*0.5;                          // 굵은 브러쉬
           ctx.stroke(g.p2d);
           ctx.setLineDash([]);
+          ctx.restore();
           penLocal=pathPointAt(g.d, Math.min(local,g.len));
         }
       }
