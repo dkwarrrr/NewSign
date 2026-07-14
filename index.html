@@ -481,9 +481,11 @@ function drawFlourish(L,fp){
 }
 
 // ── 벡터 모티브(꾸밈) 라이브러리 — (cx,cy) 중심, 크기 s, 색 color ──
-function drawMotif(type, cx, cy, s, color){
+function drawMotif(type, cx, cy, s, color, progress){
   ctx.strokeStyle=color; ctx.fillStyle=color; ctx.lineJoin='round'; ctx.lineCap='round';
   ctx.lineWidth=Math.max(2, s*0.09);   // 펜 획 굵기
+  const dashing=(progress!=null && progress<1);
+  if(dashing){ const D=s*3.5; ctx.setLineDash([D,D]); ctx.lineDashOffset=D*(1-Math.max(0,progress)); }
   if(type==='heart'){
     ctx.beginPath(); ctx.moveTo(cx, cy+s*0.35);
     ctx.bezierCurveTo(cx+s*0.55, cy-s*0.05, cx+s*0.22, cy-s*0.5, cx, cy-s*0.14);
@@ -540,24 +542,23 @@ function drawMotif(type, cx, cy, s, color){
     ctx.lineTo(cx-s*0.02,cy+s*0.08); ctx.lineTo(cx-s*0.12,cy+s*0.5);
     ctx.lineTo(cx+s*0.28,cy-s*0.12); ctx.lineTo(cx+s*0.03,cy-s*0.12); ctx.closePath(); ctx.stroke();
   }
+  if(dashing){ ctx.setLineDash([]); }
 }
 
 // 꾸밈 심볼 — 이름 우상단에 팝인 (회전 밖). fp:0~1
 function drawDeco(L,fp){
-  if(!L.deco || fp<=0){ return; }
+  if(!L.deco || fp<=0){ return null; }
   ctx.setTransform(1,0,0,1,0,0);
-  const p=Math.min(1,fp), e=1-Math.pow(1-p,3);          // ease-out pop
-  const s=L.fs*0.5*(0.55+0.45*e);
+  const s=L.fs*0.5;
   let mx,my;
   if(L.decoPos==='above'){ mx=L.cx; my=L.cy-L.bh/2-L.fs*0.42; }
   else if(L.decoPos==='front'){ mx=L.cx-L.w/2-L.fs*0.42; my=L.cy-L.bh*0.12; }
-  else if(L.decoPos==='sweep' && L.sweep && L.sweep.pts){
-    const t=L.sweep.pts[L.sweep.pts.length-1]; const q=rot(t.x,t.y,L.cx,L.cy,L.slant);
+  else if(L.decoPos==='sweep' && L.sweep){
+    const t=pathPointAt(L.sweep.d, L.sweep.len); const q=rot(t.x,t.y,L.cx,L.cy,L.slant);
     mx=q.x+L.fs*0.12; my=q.y-L.fs*0.16;
   }else{ mx=L.cx+L.w/2+L.fs*0.3; my=L.cy-L.bh*0.38; }   // corner(기본)
-  ctx.globalAlpha=e;
-  drawMotif(L.deco, mx, my, s, L.color);
-  ctx.globalAlpha=1;
+  drawMotif(L.deco, mx, my, s, L.color, Math.min(1,fp));   // 펜으로 그려짐
+  return {x:mx, y:my};
 }
 
 // 펜(✏️) — 팁이 (x,y)에 오도록 (회전 밖)
@@ -604,7 +605,7 @@ function animate(){
     });
     const total=Math.max(1,acc);
     const durName=Math.min(5200, Math.max(1600, 800+total*1.5));
-    const durFlo=700, durAll=durName+durFlo;
+    const durFlo=700, durDeco=(L.deco?550:0), durAll=durName+durFlo+durDeco;
     const brush=Math.max(4, L.fs*0.36);
     const connBrush=Math.max(2, L.fs*0.06);
     let start=null;
@@ -672,7 +673,12 @@ function animate(){
       }
       ctx.restore();
 
-      drawDeco(L, pName>=1?Math.max(0.001,floP):0);
+      // 꾸밈: 스윕까지 끝난 뒤 펜으로 그려짐
+      if(floP>=1 && durDeco>0){
+        const decoP=Math.min(1, Math.max(0,(el-durName-durFlo)/durDeco));
+        const a=drawDeco(L, Math.max(0.001,decoP));
+        if(a && decoP<1){ penScreen={x:a.x, y:a.y-L.fs*0.28}; }
+      }
 
       if(el<durAll){
         if(penScreen){ drawPen(penScreen.x,penScreen.y); }
