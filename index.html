@@ -80,6 +80,19 @@
 
     <label style="margin-top:16px">스타일</label>
     <div class="styles" id="styleGrid"></div>
+
+    <label style="margin-top:16px">꾸밈</label>
+    <div class="row" id="decoRow">
+      <div class="chip on" data-deco="auto">기본</div>
+      <div class="chip" data-deco="none">없음</div>
+      <div class="chip" data-deco="heart">하트</div>
+      <div class="chip" data-deco="star">별</div>
+      <div class="chip" data-deco="sparkle">반짝이</div>
+      <div class="chip" data-deco="crown">왕관</div>
+      <div class="chip" data-deco="ribbon">리본</div>
+      <div class="chip" data-deco="note">음표</div>
+      <div class="chip" data-deco="clover">클로버</div>
+    </div>
   </div>
 
   <div class="card stage">
@@ -131,8 +144,8 @@ const TTF = {
 // ── 스타일 정의 ─────────────────────────────────────────────────
 const STYLES = [
   {key:'basic',     nm:'기본형',      ds:'부드러운 손글씨',        size:100, slant:-0.03, flourish:'line',   deco:null, color:'#2b2340'},
-  {key:'cute',      nm:'귀여운형',    ds:'동글동글 + 하트',        size:96,  slant:0,     flourish:'dots',   deco:'♥',  color:'#ff6fae'},
-  {key:'idol',      nm:'아이돌st',    ds:'화려한 스월 + 별',       size:104, slant:-0.14, flourish:'swoosh', deco:'★',  color:'#7c5cff'},
+  {key:'cute',      nm:'귀여운형',    ds:'동글동글 + 하트',        size:96,  slant:0,     flourish:'dots',   deco:'heart', color:'#ff6fae'},
+  {key:'idol',      nm:'아이돌st',    ds:'화려한 스월 + 별',       size:104, slant:-0.14, flourish:'swoosh', deco:'star',  color:'#7c5cff'},
   {key:'ceo',       nm:'CEO/리더st',  ds:'각진 필체 + 단호한 밑줄', size:98,  slant:-0.08, flourish:'double', deco:null, color:'#1e2a44'},
   {key:'politician',nm:'정치인st',    ds:'크고 자신감 있게',       size:112, slant:-0.10, flourish:'double', deco:null, color:'#122a44'},
   {key:'medieval',  nm:'중세 필기체', ds:'고딕 블랙레터',          size:92,  slant:0,     flourish:'none',   deco:null, color:'#3a2c1a'},
@@ -140,6 +153,7 @@ const STYLES = [
 
 let curLang='ko', curStyle='basic', jitter=0;
 let variationSeed=null;   // null=이름 기반 고정 사인, 숫자=랜덤 변형
+let curDeco='auto';       // auto=스타일 기본, none=없음, 그 외=모티브 키
 
 // 시드 기반 난수 (같은 시드 → 같은 사인)
 function hashStr(s){ let h=2166136261>>>0; for(let i=0;i<s.length;i++){ h^=s.charCodeAt(i); h=Math.imul(h,16777619); } return h>>>0; }
@@ -157,6 +171,9 @@ STYLES.forEach((s,i)=>{
 });
 document.querySelectorAll('#langRow .chip').forEach(c=>{
   c.onclick=()=>{curLang=c.dataset.lang; variationSeed=null; document.querySelectorAll('#langRow .chip').forEach(x=>x.classList.remove('on')); c.classList.add('on'); animate();};
+});
+document.querySelectorAll('#decoRow .chip').forEach(c=>{
+  c.onclick=()=>{curDeco=c.dataset.deco; document.querySelectorAll('#decoRow .chip').forEach(x=>x.classList.remove('on')); c.classList.add('on'); animate();};
 });
 document.getElementById('name').addEventListener('input',()=>{ variationSeed=null; showStatic(); });
 document.getElementById('rnd').onclick=()=>{ variationSeed=Math.floor(Math.random()*2147483647); animate(); };
@@ -368,7 +385,8 @@ function buildLayout(font, name, s, withStrokes){
     sweep={d, len:Math.max(1,pathLength(d))};
   }
 
-  return {fs, cx, cy, slant, glyphs, connectors, sweep, w, bh, color:s.color, flourish:s.flourish, deco:s.deco,
+  const deco=(curDeco==='auto' ? s.deco : (curDeco==='none' ? null : curDeco));
+  return {fs, cx, cy, slant, glyphs, connectors, sweep, w, bh, color:s.color, flourish:s.flourish, deco,
           flourishY:cy+bh/2+Math.max(10,fs*0.12)};
 }
 
@@ -423,15 +441,62 @@ function drawFlourish(L,fp){
   if(L.flourish==='dots' && fp>0.6){ for(let i=-1;i<=1;i++){ ctx.beginPath(); ctx.arc(L.cx+i*30,y+8,4,0,7); ctx.fill(); } }
 }
 
-// 심볼(별/하트) — 회전 밖에서 그림
+// ── 벡터 모티브(꾸밈) 라이브러리 — (cx,cy) 중심, 크기 s, 색 color ──
+function drawMotif(type, cx, cy, s, color){
+  ctx.fillStyle=color; ctx.strokeStyle=color; ctx.lineJoin='round'; ctx.lineCap='round';
+  if(type==='heart'){
+    ctx.beginPath(); ctx.moveTo(cx, cy+s*0.35);
+    ctx.bezierCurveTo(cx+s*0.55, cy-s*0.05, cx+s*0.22, cy-s*0.5, cx, cy-s*0.14);
+    ctx.bezierCurveTo(cx-s*0.22, cy-s*0.5, cx-s*0.55, cy-s*0.05, cx, cy+s*0.35);
+    ctx.closePath(); ctx.fill();
+  }else if(type==='star'){
+    ctx.beginPath();
+    for(let i=0;i<5;i++){ const a=-Math.PI/2+i*2*Math.PI/5, b=a+Math.PI/5;
+      ctx.lineTo(cx+Math.cos(a)*s*0.5, cy+Math.sin(a)*s*0.5);
+      ctx.lineTo(cx+Math.cos(b)*s*0.22, cy+Math.sin(b)*s*0.22); }
+    ctx.closePath(); ctx.fill();
+  }else if(type==='sparkle'){
+    ctx.beginPath(); ctx.moveTo(cx,cy-s*0.5);
+    ctx.quadraticCurveTo(cx+s*0.1,cy-s*0.1, cx+s*0.5,cy);
+    ctx.quadraticCurveTo(cx+s*0.1,cy+s*0.1, cx,cy+s*0.5);
+    ctx.quadraticCurveTo(cx-s*0.1,cy+s*0.1, cx-s*0.5,cy);
+    ctx.quadraticCurveTo(cx-s*0.1,cy-s*0.1, cx,cy-s*0.5);
+    ctx.closePath(); ctx.fill();
+  }else if(type==='crown'){
+    const w=s*0.9,h=s*0.6, x0=cx-w/2, y0=cy+h*0.4;
+    ctx.beginPath(); ctx.moveTo(x0,y0);
+    ctx.lineTo(x0, y0-h*0.55); ctx.lineTo(x0+w*0.25, y0-h*0.15);
+    ctx.lineTo(cx, y0-h); ctx.lineTo(x0+w*0.75, y0-h*0.15);
+    ctx.lineTo(x0+w, y0-h*0.55); ctx.lineTo(x0+w, y0);
+    ctx.closePath(); ctx.fill();
+  }else if(type==='ribbon'){
+    ctx.beginPath(); ctx.moveTo(cx,cy); ctx.lineTo(cx-s*0.5,cy-s*0.3); ctx.lineTo(cx-s*0.5,cy+s*0.3); ctx.closePath();
+    ctx.moveTo(cx,cy); ctx.lineTo(cx+s*0.5,cy-s*0.3); ctx.lineTo(cx+s*0.5,cy+s*0.3); ctx.closePath(); ctx.fill();
+    ctx.beginPath(); ctx.arc(cx,cy,s*0.13,0,7); ctx.fill();
+  }else if(type==='note'){
+    ctx.beginPath(); ctx.ellipse(cx-s*0.14,cy+s*0.28,s*0.2,s*0.14,-0.4,0,7); ctx.fill();
+    ctx.fillRect(cx+s*0.02,cy-s*0.42,s*0.06,s*0.72);
+    ctx.beginPath(); ctx.moveTo(cx+s*0.08,cy-s*0.42);
+    ctx.quadraticCurveTo(cx+s*0.42,cy-s*0.34, cx+s*0.26,cy-s*0.02);
+    ctx.quadraticCurveTo(cx+s*0.38,cy-s*0.3, cx+s*0.08,cy-s*0.24);
+    ctx.closePath(); ctx.fill();
+  }else if(type==='clover'){
+    for(const [dx,dy] of [[-1,0],[1,0],[0,-1],[0,1]]){ ctx.beginPath(); ctx.arc(cx+dx*s*0.2, cy+dy*s*0.2, s*0.2, 0,7); ctx.fill(); }
+    ctx.fillRect(cx-s*0.03, cy+s*0.1, s*0.06, s*0.4);
+  }else if(type==='paw'){
+    ctx.beginPath(); ctx.ellipse(cx,cy+s*0.12,s*0.26,s*0.2,0,0,7); ctx.fill();
+    [[-0.24,-0.18],[0,-0.28],[0.24,-0.18]].forEach(([dx,dy])=>{ ctx.beginPath(); ctx.arc(cx+dx*s,cy+dy*s,s*0.1,0,7); ctx.fill(); });
+  }
+}
+
+// 꾸밈 심볼 — 이름 우상단에 팝인 (회전 밖). fp:0~1
 function drawDeco(L,fp){
-  if(!L.deco || fp<0.5){ return; }
+  if(!L.deco || fp<=0){ return; }
   ctx.setTransform(1,0,0,1,0,0);
-  ctx.globalAlpha=Math.min(1,(fp-0.5)*2);
-  ctx.fillStyle=L.color;
-  ctx.font=`${L.fs*0.5}px "Segoe UI Emoji",sans-serif`;
-  ctx.textAlign='left'; ctx.textBaseline='middle';
-  ctx.fillText(L.deco, L.cx+L.w/2+18, L.cy-L.bh*0.3);
+  const p=Math.min(1,fp), e=1-Math.pow(1-p,3);          // ease-out pop
+  const s=L.fs*0.5*(0.55+0.45*e);
+  ctx.globalAlpha=e;
+  drawMotif(L.deco, L.cx+L.w/2+L.fs*0.3, L.cy-L.bh*0.38, s, L.color);
   ctx.globalAlpha=1;
 }
 
@@ -547,7 +612,7 @@ function animate(){
       }
       ctx.restore();
 
-      drawDeco(L, pName>=1?0.5+floP*0.5:0);
+      drawDeco(L, pName>=1?Math.max(0.001,floP):0);
 
       if(el<durAll){
         if(penScreen){ drawPen(penScreen.x,penScreen.y); }
