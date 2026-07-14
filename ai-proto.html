@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>AI 손글씨 렌더러 프로토타입</title>
+<style>
+  body{margin:0;font-family:"Malgun Gothic",sans-serif;background:#f4f1ff;color:#2b2340;padding:24px}
+  .wrap{max-width:860px;margin:0 auto}
+  h1{font-size:20px}
+  .note{font-size:13px;color:#8a82a3;line-height:1.7;background:#fff;border:1px solid #e7e2f5;border-radius:12px;padding:14px}
+  canvas{max-width:100%;border-radius:14px;background:repeating-conic-gradient(#faf8ff 0% 25%,#fff 0% 50%) 50%/22px 22px;border:1px solid #e7e2f5;margin:14px 0}
+  button{padding:10px 18px;border:none;border-radius:10px;background:#7c5cff;color:#fff;font-weight:700;cursor:pointer}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>✍️ AI 손글씨 <b>렌더러</b> 프로토타입</h1>
+  <p class="note">
+    ⚠️ 이건 <b>렌더링 절반</b>입니다. 입력 <code>strokes</code>(펜 궤적: {x,y,up} 배열)를
+    <b>필압 리본 + 획 그리기 애니메이션</b>으로 그립니다.<br>
+    지금은 임시 <b>샘플 궤적</b>을 넣었습니다. 여기 자리에 나중에 <b>AI 모델(Graves/ONNX) 출력</b>을 꽂으면
+    실제 손글씨가 됩니다. (폰트 골격이 아니라 깔끔한 단일 펜 궤적이라 리본이 잘 먹힙니다.)
+  </p>
+  <canvas id="cv" width="820" height="300"></canvas>
+  <div><button id="replay">다시 그리기 ▶</button></div>
+</div>
+<script>
+const cv=document.getElementById('cv'), ctx=cv.getContext('2d'), W=cv.width, H=cv.height;
+
+// ── 임시 샘플 펜 궤적 (모델 출력 자리) — 흘림 사인 느낌의 연속 곡선 ──
+function sampleStrokes(){
+  const pts=[];
+  const push=(x,y,up)=>pts.push({x,y,up:!!up});
+  // 3개의 연결된 획 덩어리 + 마지막 긴 스윕
+  for(let i=0;i<=260;i++){ const t=i/260, x=90+t*300;
+    const y=170 + Math.sin(t*Math.PI*3.2)*55 + Math.sin(t*Math.PI*8)*12 - t*20;
+    push(x,y, i===0); }
+  push(pts[pts.length-1].x+18, pts[pts.length-1].y-6, true);   // 펜 들기
+  for(let i=0;i<=180;i++){ const t=i/180, x=360+t*230;
+    const y=150 + Math.sin(t*Math.PI*2.6+1)*48 - t*8;
+    push(x,y, i===0); }
+  // 마지막 관통 스윕
+  push(300, 250, true);
+  for(let i=0;i<=140;i++){ const t=i/140, x=300+t*470;
+    const y=250 - Math.pow(t,1.6)*70; push(x,y, i===0); }
+  return pts;
+}
+
+// 궤적을 연속 구간(pen-down)들로 분할
+function splitStrokes(pts){
+  const segs=[]; let cur=null;
+  for(const p of pts){ if(p.up||!cur){ cur=[]; segs.push(cur); } cur.push(p); }
+  return segs.filter(s=>s.length>=2);
+}
+
+// 한 구간을 필압 리본으로 그림 (progress 0~1)
+function ribbon(seg, maxHalf, nib, contrast, progress){
+  const cum=[0]; let total=0;
+  for(let i=1;i<seg.length;i++){ total+=Math.hypot(seg[i].x-seg[i-1].x, seg[i].y-seg[i-1].y); cum.push(total); }
+  if(total<=0) return null;
+  const target=Math.max(0,Math.min(1,progress))*total;
+  const P=[];
+  for(let i=0;i<seg.length;i++){
+    if(cum[i]<=target){ P.push({x:seg[i].x,y:seg[i].y,c:cum[i]}); }
+    else{ const a=seg[i-1], f=(target-cum[i-1])/((cum[i]-cum[i-1])||1);
+      P.push({x:a.x+(seg[i].x-a.x)*f, y:a.y+(seg[i].y-a.y)*f, c:target}); break; }
+  }
+  if(P.length<2) return P[0]||null;
+  const n=P.length, Lo=[], Ro=[];
+  for(let i=0;i<n;i++){
+    const a=P[Math.max(0,i-1)], b=P[Math.min(n-1,i+1)];
+    let tx=b.x-a.x, ty=b.y-a.y; const tl=Math.hypot(tx,ty)||1; tx/=tl; ty/=tl;
+    const nx=-ty, ny=tx, t=P[i].c/total;
+    const taper=Math.max(0.06, Math.min(1, t/0.12, (1-t)/0.12));
+    const mod=contrast+(1-contrast)*Math.abs(Math.sin(Math.atan2(ty,tx)-nib));
+    const hw=maxHalf*Math.sqrt(taper)*mod;
+    Lo.push({x:P[i].x+nx*hw,y:P[i].y+ny*hw}); Ro.push({x:P[i].x-nx*hw,y:P[i].y-ny*hw});
+  }
+  ctx.beginPath(); ctx.moveTo(Lo[0].x,Lo[0].y);
+  for(let i=1;i<n;i++) ctx.lineTo(Lo[i].x,Lo[i].y);
+  for(let i=n-1;i>=0;i--) ctx.lineTo(Ro[i].x,Ro[i].y);
+  ctx.closePath(); ctx.fill();
+  return P[n-1];
+}
+
+const STROKES=sampleStrokes(), SEGS=splitStrokes(STROKES);
+const segLen=SEGS.map(s=>{let L=0;for(let i=1;i<s.length;i++)L+=Math.hypot(s[i].x-s[i-1].x,s[i].y-s[i-1].y);return L;});
+const totalLen=segLen.reduce((a,b)=>a+b,0);
+
+function renderProgress(p){
+  ctx.clearRect(0,0,W,H); ctx.fillStyle='#2b2340';
+  const target=p*totalLen; let acc=0, tip=null;
+  for(let i=0;i<SEGS.length;i++){
+    const s0=acc, s1=acc+segLen[i];
+    if(target>=s1){ ribbon(SEGS[i], 9, -0.6, 0.32, 1); }
+    else if(target>s0){ tip=ribbon(SEGS[i], 9, -0.6, 0.32, (target-s0)/segLen[i]); break; }
+    acc=s1;
+  }
+  if(tip){ ctx.font='30px "Segoe UI Emoji"'; ctx.textAlign='left'; ctx.textBaseline='bottom'; ctx.fillText('🖌️', tip.x-5, tip.y+16); }
+}
+
+let raf=0;
+function play(){
+  cancelAnimationFrame(raf); const dur=2600, t0=performance.now();
+  (function step(now){ const p=Math.min(1,(now-t0)/dur); renderProgress(p);
+    if(p<1){ raf=requestAnimationFrame(step); } else { ctx.clearRect(0,0,W,H); renderProgress(1); }
+  })(t0);
+}
+document.getElementById('replay').onclick=play;
+renderProgress(1); play();
+</script>
+</body>
+</html>
