@@ -84,9 +84,11 @@ function sampleBivar(mu1,mu2,sd1,sd2,ro){
 }
 function isEnd(phi,u,isEos){ return phi[u-1]>0.8 || (argmax(Array.from(phi))===u-1 && isEos); }
 
+const MODEL_URL=new URL('synthesis_network_52.onnx', document.baseURI).href;
 let session=null;
 async function getSession(){
-  if(!session){ session=await ort.InferenceSession.create('./synthesis_network_52.onnx',{executionProviders:['wasm'], graphOptimizationLevel:'disabled'}); }
+  if(location.protocol==='file:'){ throw new Error('file://로 직접 열면 모델을 못 불러옵니다. http로 접속하세요(로컬 서버 또는 GitHub Pages).'); }
+  if(!session){ session=await ort.InferenceSession.create(MODEL_URL,{executionProviders:['wasm'], graphOptimizationLevel:'disabled'}); }
   return session;
 }
 async function generate(text, biasVal){
@@ -200,7 +202,12 @@ async function run(){
 }
 document.getElementById('gen').onclick=run;
 document.getElementById('dl').onclick=()=>{ if(lastLayout) renderAt(lastLayout,1); const a=document.createElement('a'); a.download='ai_sign.png'; a.href=cv.toDataURL('image/png'); a.click(); };
-getSession().then(()=>{ statusEl.textContent='준비 완료 — 생성을 눌러보세요'; run(); });
+if(location.protocol==='file:'){
+  statusEl.textContent='⚠️ 파일로 직접 열면 안 됩니다. http로 접속하세요(GitHub Pages 또는 로컬 서버).';
+}else{
+  getSession().then(()=>{ statusEl.textContent='준비 완료 — 생성을 눌러보세요'; run(); })
+    .catch(e=>{ statusEl.textContent='모델 로드 실패: '+e; });
+}
 </script>
 </body>
 </html>
