@@ -482,65 +482,63 @@ function drawFlourish(L,fp){
 
 // ── 벡터 모티브(꾸밈) 라이브러리 — (cx,cy) 중심, 크기 s, 색 color ──
 function drawMotif(type, cx, cy, s, color){
-  ctx.fillStyle=color; ctx.strokeStyle=color; ctx.lineJoin='round'; ctx.lineCap='round';
+  ctx.strokeStyle=color; ctx.fillStyle=color; ctx.lineJoin='round'; ctx.lineCap='round';
+  ctx.lineWidth=Math.max(2, s*0.09);   // 펜 획 굵기
   if(type==='heart'){
     ctx.beginPath(); ctx.moveTo(cx, cy+s*0.35);
     ctx.bezierCurveTo(cx+s*0.55, cy-s*0.05, cx+s*0.22, cy-s*0.5, cx, cy-s*0.14);
     ctx.bezierCurveTo(cx-s*0.22, cy-s*0.5, cx-s*0.55, cy-s*0.05, cx, cy+s*0.35);
-    ctx.closePath(); ctx.fill();
+    ctx.closePath(); ctx.stroke();
   }else if(type==='star'){
     ctx.beginPath();
     for(let i=0;i<5;i++){ const a=-Math.PI/2+i*2*Math.PI/5, b=a+Math.PI/5;
       ctx.lineTo(cx+Math.cos(a)*s*0.5, cy+Math.sin(a)*s*0.5);
       ctx.lineTo(cx+Math.cos(b)*s*0.22, cy+Math.sin(b)*s*0.22); }
-    ctx.closePath(); ctx.fill();
+    ctx.closePath(); ctx.stroke();
   }else if(type==='sparkle'){
     ctx.beginPath(); ctx.moveTo(cx,cy-s*0.5);
     ctx.quadraticCurveTo(cx+s*0.1,cy-s*0.1, cx+s*0.5,cy);
     ctx.quadraticCurveTo(cx+s*0.1,cy+s*0.1, cx,cy+s*0.5);
     ctx.quadraticCurveTo(cx-s*0.1,cy+s*0.1, cx-s*0.5,cy);
     ctx.quadraticCurveTo(cx-s*0.1,cy-s*0.1, cx,cy-s*0.5);
-    ctx.closePath(); ctx.fill();
+    ctx.closePath(); ctx.stroke();
   }else if(type==='crown'){
     const w=s*0.9,h=s*0.6, x0=cx-w/2, y0=cy+h*0.4;
     ctx.beginPath(); ctx.moveTo(x0,y0);
     ctx.lineTo(x0, y0-h*0.55); ctx.lineTo(x0+w*0.25, y0-h*0.15);
     ctx.lineTo(cx, y0-h); ctx.lineTo(x0+w*0.75, y0-h*0.15);
     ctx.lineTo(x0+w, y0-h*0.55); ctx.lineTo(x0+w, y0);
-    ctx.closePath(); ctx.fill();
+    ctx.closePath(); ctx.stroke();
   }else if(type==='ribbon'){
     ctx.beginPath(); ctx.moveTo(cx,cy); ctx.lineTo(cx-s*0.5,cy-s*0.3); ctx.lineTo(cx-s*0.5,cy+s*0.3); ctx.closePath();
-    ctx.moveTo(cx,cy); ctx.lineTo(cx+s*0.5,cy-s*0.3); ctx.lineTo(cx+s*0.5,cy+s*0.3); ctx.closePath(); ctx.fill();
-    ctx.beginPath(); ctx.arc(cx,cy,s*0.13,0,7); ctx.fill();
+    ctx.moveTo(cx,cy); ctx.lineTo(cx+s*0.5,cy-s*0.3); ctx.lineTo(cx+s*0.5,cy+s*0.3); ctx.closePath(); ctx.stroke();
+    ctx.beginPath(); ctx.arc(cx,cy,s*0.1,0,7); ctx.stroke();
   }else if(type==='note'){
-    ctx.beginPath(); ctx.ellipse(cx-s*0.14,cy+s*0.28,s*0.2,s*0.14,-0.4,0,7); ctx.fill();
-    ctx.fillRect(cx+s*0.02,cy-s*0.42,s*0.06,s*0.72);
-    ctx.beginPath(); ctx.moveTo(cx+s*0.08,cy-s*0.42);
-    ctx.quadraticCurveTo(cx+s*0.42,cy-s*0.34, cx+s*0.26,cy-s*0.02);
-    ctx.quadraticCurveTo(cx+s*0.38,cy-s*0.3, cx+s*0.08,cy-s*0.24);
-    ctx.closePath(); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(cx-s*0.14,cy+s*0.28,s*0.18,s*0.13,-0.4,0,7); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(cx+s*0.04,cy+s*0.26); ctx.lineTo(cx+s*0.04,cy-s*0.42);
+    ctx.quadraticCurveTo(cx+s*0.4,cy-s*0.34, cx+s*0.24,cy-s*0.02); ctx.stroke();
   }else if(type==='clover'){
-    for(const [dx,dy] of [[-1,0],[1,0],[0,-1],[0,1]]){ ctx.beginPath(); ctx.arc(cx+dx*s*0.2, cy+dy*s*0.2, s*0.2, 0,7); ctx.fill(); }
-    ctx.fillRect(cx-s*0.03, cy+s*0.1, s*0.06, s*0.4);
+    for(const [dx,dy] of [[-1,0],[1,0],[0,-1],[0,1]]){ ctx.beginPath(); ctx.arc(cx+dx*s*0.2, cy+dy*s*0.2, s*0.18, 0,7); ctx.stroke(); }
+    ctx.beginPath(); ctx.moveTo(cx, cy+s*0.36); ctx.lineTo(cx, cy+s*0.6); ctx.stroke();
   }else if(type==='paw'){
-    ctx.beginPath(); ctx.ellipse(cx,cy+s*0.12,s*0.26,s*0.2,0,0,7); ctx.fill();
-    [[-0.24,-0.18],[0,-0.28],[0.24,-0.18]].forEach(([dx,dy])=>{ ctx.beginPath(); ctx.arc(cx+dx*s,cy+dy*s,s*0.1,0,7); ctx.fill(); });
+    ctx.beginPath(); ctx.ellipse(cx,cy+s*0.14,s*0.24,s*0.18,0,0,7); ctx.stroke();
+    [[-0.24,-0.16],[0,-0.26],[0.24,-0.16]].forEach(([dx,dy])=>{ ctx.beginPath(); ctx.arc(cx+dx*s,cy+dy*s,s*0.1,0,7); ctx.stroke(); });
   }else if(type==='flower'){
-    for(let i=0;i<5;i++){ const a=-Math.PI/2+i*2*Math.PI/5; ctx.beginPath(); ctx.arc(cx+Math.cos(a)*s*0.26, cy+Math.sin(a)*s*0.26, s*0.17,0,7); ctx.fill(); }
-    ctx.beginPath(); ctx.arc(cx,cy,s*0.14,0,7); ctx.fill();
+    for(let i=0;i<5;i++){ const a=-Math.PI/2+i*2*Math.PI/5; ctx.beginPath(); ctx.ellipse(cx+Math.cos(a)*s*0.27, cy+Math.sin(a)*s*0.27, s*0.16,s*0.1, a+Math.PI/2,0,7); ctx.stroke(); }
+    ctx.beginPath(); ctx.arc(cx,cy,s*0.1,0,7); ctx.stroke();
   }else if(type==='butterfly'){
-    ctx.beginPath(); ctx.ellipse(cx-s*0.22,cy-s*0.12,s*0.2,s*0.26,-0.5,0,7); ctx.fill();
-    ctx.beginPath(); ctx.ellipse(cx+s*0.22,cy-s*0.12,s*0.2,s*0.26,0.5,0,7); ctx.fill();
-    ctx.beginPath(); ctx.ellipse(cx-s*0.17,cy+s*0.2,s*0.15,s*0.18,-0.4,0,7); ctx.fill();
-    ctx.beginPath(); ctx.ellipse(cx+s*0.17,cy+s*0.2,s*0.15,s*0.18,0.4,0,7); ctx.fill();
-    ctx.fillRect(cx-s*0.03,cy-s*0.28,s*0.06,s*0.55);
+    ctx.beginPath(); ctx.ellipse(cx-s*0.22,cy-s*0.12,s*0.2,s*0.26,-0.5,0,7); ctx.stroke();
+    ctx.beginPath(); ctx.ellipse(cx+s*0.22,cy-s*0.12,s*0.2,s*0.26,0.5,0,7); ctx.stroke();
+    ctx.beginPath(); ctx.ellipse(cx-s*0.17,cy+s*0.2,s*0.15,s*0.18,-0.4,0,7); ctx.stroke();
+    ctx.beginPath(); ctx.ellipse(cx+s*0.17,cy+s*0.2,s*0.15,s*0.18,0.4,0,7); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(cx,cy-s*0.28); ctx.lineTo(cx,cy+s*0.27); ctx.stroke();
   }else if(type==='moon'){
     ctx.beginPath(); ctx.arc(cx,cy,s*0.45,Math.PI*0.35,Math.PI*1.65,false);
-    ctx.arc(cx+s*0.22,cy,s*0.42,Math.PI*1.5,Math.PI*0.5,true); ctx.closePath(); ctx.fill();
+    ctx.arc(cx+s*0.22,cy,s*0.42,Math.PI*1.5,Math.PI*0.5,true); ctx.closePath(); ctx.stroke();
   }else if(type==='lightning'){
     ctx.beginPath(); ctx.moveTo(cx+s*0.1,cy-s*0.5); ctx.lineTo(cx-s*0.25,cy+s*0.08);
     ctx.lineTo(cx-s*0.02,cy+s*0.08); ctx.lineTo(cx-s*0.12,cy+s*0.5);
-    ctx.lineTo(cx+s*0.28,cy-s*0.12); ctx.lineTo(cx+s*0.03,cy-s*0.12); ctx.closePath(); ctx.fill();
+    ctx.lineTo(cx+s*0.28,cy-s*0.12); ctx.lineTo(cx+s*0.03,cy-s*0.12); ctx.closePath(); ctx.stroke();
   }
 }
 
