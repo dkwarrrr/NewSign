@@ -92,6 +92,31 @@
       <div class="chip" data-deco="ribbon">리본</div>
       <div class="chip" data-deco="note">음표</div>
       <div class="chip" data-deco="clover">클로버</div>
+      <div class="chip" data-deco="paw">발바닥</div>
+      <div class="chip" data-deco="flower">꽃</div>
+      <div class="chip" data-deco="butterfly">나비</div>
+      <div class="chip" data-deco="moon">달</div>
+      <div class="chip" data-deco="lightning">번개</div>
+    </div>
+
+    <label style="margin-top:16px">꾸밈 위치</label>
+    <div class="row" id="decoPosRow">
+      <div class="chip on" data-pos="corner">우상단</div>
+      <div class="chip" data-pos="sweep">스윕 끝</div>
+      <div class="chip" data-pos="above">이름 위</div>
+      <div class="chip" data-pos="front">앞</div>
+    </div>
+
+    <label style="margin-top:16px">색상</label>
+    <div class="row" id="colorRow">
+      <div class="chip on" data-color="">기본</div>
+      <div class="chip" data-color="#2b2340">먹색</div>
+      <div class="chip" data-color="#1e2a44">남색</div>
+      <div class="chip" data-color="#c0392b">빨강</div>
+      <div class="chip" data-color="#ff6fae">핑크</div>
+      <div class="chip" data-color="#7c5cff">보라</div>
+      <div class="chip" data-color="#1aa39c">청록</div>
+      <input type="color" id="colorPick" value="#2b2340" title="직접 선택" style="width:44px;height:38px;border:2px solid var(--line);border-radius:10px;padding:2px;cursor:pointer;background:#fff">
     </div>
   </div>
 
@@ -154,6 +179,8 @@ const STYLES = [
 let curLang='ko', curStyle='basic', jitter=0;
 let variationSeed=null;   // null=이름 기반 고정 사인, 숫자=랜덤 변형
 let curDeco='auto';       // auto=스타일 기본, none=없음, 그 외=모티브 키
+let curDecoPos='corner';  // corner/sweep/above/front
+let curColor='';          // ''=스타일 색, 그 외=선택 색
 
 // 시드 기반 난수 (같은 시드 → 같은 사인)
 function hashStr(s){ let h=2166136261>>>0; for(let i=0;i<s.length;i++){ h^=s.charCodeAt(i); h=Math.imul(h,16777619); } return h>>>0; }
@@ -174,6 +201,17 @@ document.querySelectorAll('#langRow .chip').forEach(c=>{
 });
 document.querySelectorAll('#decoRow .chip').forEach(c=>{
   c.onclick=()=>{curDeco=c.dataset.deco; document.querySelectorAll('#decoRow .chip').forEach(x=>x.classList.remove('on')); c.classList.add('on'); animate();};
+});
+document.querySelectorAll('#decoPosRow .chip').forEach(c=>{
+  c.onclick=()=>{curDecoPos=c.dataset.pos; document.querySelectorAll('#decoPosRow .chip').forEach(x=>x.classList.remove('on')); c.classList.add('on'); animate();};
+});
+document.querySelectorAll('#colorRow .chip').forEach(c=>{
+  c.onclick=()=>{curColor=c.dataset.color; document.querySelectorAll('#colorRow .chip').forEach(x=>x.classList.remove('on')); c.classList.add('on'); animate();};
+});
+document.getElementById('colorPick').addEventListener('input',e=>{
+  curColor=e.target.value;
+  document.querySelectorAll('#colorRow .chip').forEach(x=>x.classList.remove('on'));
+  if(lastLayout){ lastLayout.color=curColor; renderSolid(lastLayout); }   // 즉시 재색칠(재계산 없이)
 });
 document.getElementById('name').addEventListener('input',()=>{ variationSeed=null; showStatic(); });
 document.getElementById('rnd').onclick=()=>{ variationSeed=Math.floor(Math.random()*2147483647); animate(); };
@@ -386,7 +424,8 @@ function buildLayout(font, name, s, withStrokes){
   }
 
   const deco=(curDeco==='auto' ? s.deco : (curDeco==='none' ? null : curDeco));
-  return {fs, cx, cy, slant, glyphs, connectors, sweep, w, bh, color:s.color, flourish:s.flourish, deco,
+  const color=curColor||s.color;
+  return {fs, cx, cy, slant, glyphs, connectors, sweep, w, bh, color, flourish:s.flourish, deco, decoPos:curDecoPos,
           flourishY:cy+bh/2+Math.max(10,fs*0.12)};
 }
 
@@ -486,6 +525,22 @@ function drawMotif(type, cx, cy, s, color){
   }else if(type==='paw'){
     ctx.beginPath(); ctx.ellipse(cx,cy+s*0.12,s*0.26,s*0.2,0,0,7); ctx.fill();
     [[-0.24,-0.18],[0,-0.28],[0.24,-0.18]].forEach(([dx,dy])=>{ ctx.beginPath(); ctx.arc(cx+dx*s,cy+dy*s,s*0.1,0,7); ctx.fill(); });
+  }else if(type==='flower'){
+    for(let i=0;i<5;i++){ const a=-Math.PI/2+i*2*Math.PI/5; ctx.beginPath(); ctx.arc(cx+Math.cos(a)*s*0.26, cy+Math.sin(a)*s*0.26, s*0.17,0,7); ctx.fill(); }
+    ctx.beginPath(); ctx.arc(cx,cy,s*0.14,0,7); ctx.fill();
+  }else if(type==='butterfly'){
+    ctx.beginPath(); ctx.ellipse(cx-s*0.22,cy-s*0.12,s*0.2,s*0.26,-0.5,0,7); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(cx+s*0.22,cy-s*0.12,s*0.2,s*0.26,0.5,0,7); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(cx-s*0.17,cy+s*0.2,s*0.15,s*0.18,-0.4,0,7); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(cx+s*0.17,cy+s*0.2,s*0.15,s*0.18,0.4,0,7); ctx.fill();
+    ctx.fillRect(cx-s*0.03,cy-s*0.28,s*0.06,s*0.55);
+  }else if(type==='moon'){
+    ctx.beginPath(); ctx.arc(cx,cy,s*0.45,Math.PI*0.35,Math.PI*1.65,false);
+    ctx.arc(cx+s*0.22,cy,s*0.42,Math.PI*1.5,Math.PI*0.5,true); ctx.closePath(); ctx.fill();
+  }else if(type==='lightning'){
+    ctx.beginPath(); ctx.moveTo(cx+s*0.1,cy-s*0.5); ctx.lineTo(cx-s*0.25,cy+s*0.08);
+    ctx.lineTo(cx-s*0.02,cy+s*0.08); ctx.lineTo(cx-s*0.12,cy+s*0.5);
+    ctx.lineTo(cx+s*0.28,cy-s*0.12); ctx.lineTo(cx+s*0.03,cy-s*0.12); ctx.closePath(); ctx.fill();
   }
 }
 
@@ -495,8 +550,15 @@ function drawDeco(L,fp){
   ctx.setTransform(1,0,0,1,0,0);
   const p=Math.min(1,fp), e=1-Math.pow(1-p,3);          // ease-out pop
   const s=L.fs*0.5*(0.55+0.45*e);
+  let mx,my;
+  if(L.decoPos==='above'){ mx=L.cx; my=L.cy-L.bh/2-L.fs*0.42; }
+  else if(L.decoPos==='front'){ mx=L.cx-L.w/2-L.fs*0.42; my=L.cy-L.bh*0.12; }
+  else if(L.decoPos==='sweep' && L.sweep && L.sweep.pts){
+    const t=L.sweep.pts[L.sweep.pts.length-1]; const q=rot(t.x,t.y,L.cx,L.cy,L.slant);
+    mx=q.x+L.fs*0.12; my=q.y-L.fs*0.16;
+  }else{ mx=L.cx+L.w/2+L.fs*0.3; my=L.cy-L.bh*0.38; }   // corner(기본)
   ctx.globalAlpha=e;
-  drawMotif(L.deco, L.cx+L.w/2+L.fs*0.3, L.cy-L.bh*0.38, s, L.color);
+  drawMotif(L.deco, mx, my, s, L.color);
   ctx.globalAlpha=1;
 }
 
