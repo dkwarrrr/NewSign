@@ -457,17 +457,35 @@ function ribbonStroke(pts,maxHalf,progress,nib,contrast){
   ctx.closePath(); ctx.fill();
   return {x:P[n-1].x, y:P[n-1].y};
 }
-// 펜 이동 브리지: 끝점→다음 시작점을 아래로 처지는 곡선으로 연결 (펜 안 뗌)
-function bridgePts(a,b){
+// 폴리라인 끝(end=true)/시작 지점의 단위 접선
+function tangentAt(P,end){
+  if(!P||P.length<2){ return null; }
+  const i=end? P.length-1 : Math.min(3,P.length-1);
+  const j=end? Math.max(0,P.length-4) : 0;
+  const a=end? P[j] : P[i], b=end? P[i] : P[j];
+  const dx=b.x-a.x, dy=b.y-a.y, l=Math.hypot(dx,dy);
+  if(l<0.01){ return null; }
+  return {x:dx/l, y:dy/l};
+}
+// 펜 이동 브리지: 이전 획의 나가는 접선을 타고 다음 획 진입 접선으로 흘러드는 S자 곡선 (펜 안 뗌)
+function bridgePts(a,b,ta,tb){
   const dx=b.x-a.x, dy=b.y-a.y, l=Math.hypot(dx,dy);
   if(l<3){ return []; }
-  let nx=-dy/l, ny=dx/l;
-  if(ny<0){ nx=-nx; ny=-ny; }
-  const cx2=(a.x+b.x)/2+nx*l*0.12, cy2=(a.y+b.y)/2+ny*l*0.12;
-  const out=[], n=Math.max(4, Math.round(l/3));
+  const ux=dx/l, uy=dy/l;
+  let e1x=ta? ta.x*0.6+ux*0.4 : ux, e1y=ta? ta.y*0.6+uy*0.4 : uy;
+  let e2x=tb? tb.x*0.6+ux*0.4 : ux, e2y=tb? tb.y*0.6+uy*0.4 : uy;
+  const n1=Math.hypot(e1x,e1y)||1, n2=Math.hypot(e2x,e2y)||1;
+  e1x/=n1; e1y/=n1; e2x/=n2; e2y/=n2;
+  const arm=Math.min(l*0.35, 18);   // 곡선 팔 제한: 긴 연결이 크게 굽어 획을 가로지르는 것 방지
+  const c1={x:a.x+e1x*arm, y:a.y+e1y*arm};
+  const c2={x:b.x-e2x*arm, y:b.y-e2y*arm};
+  const out=[], n=Math.max(6, Math.round(l/2.5));
   for(let i=1;i<n;i++){
     const t=i/n, mt=1-t;
-    out.push({x:mt*mt*a.x+2*mt*t*cx2+t*t*b.x, y:mt*mt*a.y+2*mt*t*cy2+t*t*b.y});
+    out.push({
+      x:mt*mt*mt*a.x+3*mt*mt*t*c1.x+3*mt*t*t*c2.x+t*t*t*b.x,
+      y:mt*mt*mt*a.y+3*mt*mt*t*c1.y+3*mt*t*t*c2.y+t*t*t*b.y
+    });
   }
   return out;
 }
@@ -516,8 +534,8 @@ function prepHand(L,seed){
     const amp=Math.max(0.3, fs*0.008);
     const k=curFlow;
     const minLen=fs*(0.03+0.05*k);
-    const inGap=fs*(curLang==='en' ? 0.3+0.45*k : 0.05+0.4*k);
-    const seamR=Math.round(3+3*k), seamP=1+Math.round(2*k);
+    const inGap=fs*(curLang==='en' ? 0.3+0.45*k : 0.10+0.35*k);
+    const seamR=Math.round(2+3*k), seamP=1+Math.round(1.5*k);
     L.scrawlFallback=[];
     const glyphLists=[];
     L.glyphs.forEach((g,gi)=>{
@@ -539,15 +557,18 @@ function prepHand(L,seed){
     glyphLists.forEach(list=>{
       list.forEach((raw,si)=>{
         const pts=smoothPts(resamplePts(raw,step),2);   // 획 본체는 또박 수준으로만 다듬음
-        // 글자 간 / 글자 내 연결 한계 — CJK는 자모가 뭉개지지 않게 가까운 획만 연결
-        const gapMax=(si===0 ? fs*0.7 : inGap);
+        // 글자 간 / 글자 내 연결 한계 — 접선 브리지라 넉넉히 이어도 글자가 살아 있음
+        const gapMax=(si===0 ? fs*0.9 : inGap);
         if(cur){
           const tail=cur[cur.length-1];
           const d=Math.hypot(pts[0].x-tail.x, pts[0].y-tail.y);
           const fwd=(si!==0) || (pts[0].x-tail.x > -fs*0.15);   // 글자 간은 전진 방향만 연결(역주행 브리지 금지)
-          if(d<=gapMax && fwd){
+          // 나가는 획이 이미 목표 쪽으로 흐를 때만 연결 (펜 급반전 = 획 가로지름 방지)
+          const ta=tangentAt(cur,true);
+          const align=ta&&d>0.01 ? (ta.x*(pts[0].x-tail.x)+ta.y*(pts[0].y-tail.y))/d : 1;
+          if(d<=gapMax && fwd && align>0.1){
             seams.push(cur.length);
-            cur.push(...bridgePts(tail,pts[0]));
+            cur.push(...bridgePts(tail, pts[0], tangentAt(cur,true), tangentAt(pts,false)));
             seams.push(cur.length);
             cur.push(...pts);
           }else{ flush(); cur=pts.slice(); }
@@ -571,7 +592,7 @@ function prepHand(L,seed){
       }
     }
     L.chains=chains.map(ch=>{
-      const half=baseHalf*(0.9+rnd()*0.2);
+      const half=baseHalf*(1.05+rnd()*0.25);
       let pts=smoothSeams(ch.pts, ch.seams, seamR, seamP);   // 이음새 주변만 뭉갬
       pts=extendEnds(pts,half*1.1);
       pts=jitterPts(pts,amp,rnd);
@@ -579,7 +600,7 @@ function prepHand(L,seed){
     }).filter(c=>c.pts.length>=2 && c.len>2);
     if(!L.chains.length){ L.chains=null; }
     L.connHand=[];
-    L.contrast=0.45;
+    L.contrast=0.3;   // 붓 느낌: 방향별 굵기 대비 강화
   }
   if(!L.chains){
     const step=Math.max(1.6, fs*0.02);
@@ -668,7 +689,7 @@ function buildLayout(font, name, s, withStrokes){
     m.translateSelf(g.cx,gcy); m.rotateSelf(rotDeg); m.scaleSelf(sc); m.translateSelf(-g.cx,-gcy);
     g.mat=m;
   });
-  const slant=s.slant+(rnd()*2-1)*0.04-0.08;   // 사인 느낌: 앞으로 더 기울임
+  const slant=s.slant+(rnd()*2-1)*0.04-0.08-(curPen==='scrawl'?0.05:0);   // 사인 느낌: 앞으로 더 기울임(흘림은 더)
 
   // ── 글자 간 연결획 (한글·라틴 모두, 이어 쓰기) ──
   const connectors=[];
