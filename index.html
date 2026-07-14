@@ -87,6 +87,11 @@
       <div class="chip" data-pen="hand">또박 손글씨</div>
       <div class="chip" data-pen="font">폰트 원본</div>
     </div>
+    <div class="row" id="flowRow" style="align-items:center">
+      <label style="margin:0">흘림 강도</label>
+      <input type="range" id="flow" min="0" max="1" step="0.05" value="0.15" style="flex:1;max-width:220px">
+      <span id="flowv" style="font-size:13px;color:#8a82a3">0.15</span>
+    </div>
 
     <label style="margin-top:16px">꾸밈</label>
     <div class="row" id="decoRow">
@@ -188,6 +193,7 @@ const STYLES = [
 
 let curLang='ko', curStyle='basic', jitter=0;
 let curPen='scrawl';      // scrawl=한붓 흘림 사인, hand=골격을 손 펜으로 따라 그림, font=폰트 채우기
+let curFlow=0.15;         // 흘림 강도 0~1 (scrawl 모드의 연결 거리·뭉갬 정도)
 let variationSeed=null;   // null=이름 기반 고정 사인, 숫자=랜덤 변형
 let curDeco='auto';       // auto=스타일 기본, none=없음, 그 외=모티브 키
 let curDecoPos='corner';  // corner/sweep/above/front
@@ -213,6 +219,12 @@ document.querySelectorAll('#langRow .chip').forEach(c=>{
 document.querySelectorAll('#penRow .chip').forEach(c=>{
   c.onclick=()=>{curPen=c.dataset.pen; document.querySelectorAll('#penRow .chip').forEach(x=>x.classList.remove('on')); c.classList.add('on'); animate();};
 });
+document.getElementById('flow').addEventListener('input',e=>{
+  curFlow=parseFloat(e.target.value);
+  document.getElementById('flowv').textContent=e.target.value;
+  showStatic();
+});
+document.getElementById('flow').addEventListener('change',animate);
 document.querySelectorAll('#decoRow .chip').forEach(c=>{
   c.onclick=()=>{curDeco=c.dataset.deco; document.querySelectorAll('#decoRow .chip').forEach(x=>x.classList.remove('on')); c.classList.add('on'); animate();};
 });
@@ -451,13 +463,26 @@ function bridgePts(a,b){
   if(l<3){ return []; }
   let nx=-dy/l, ny=dx/l;
   if(ny<0){ nx=-nx; ny=-ny; }
-  const cx2=(a.x+b.x)/2+nx*l*0.18, cy2=(a.y+b.y)/2+ny*l*0.18;
+  const cx2=(a.x+b.x)/2+nx*l*0.12, cy2=(a.y+b.y)/2+ny*l*0.12;
   const out=[], n=Math.max(4, Math.round(l/3));
   for(let i=1;i<n;i++){
     const t=i/n, mt=1-t;
     out.push({x:mt*mt*a.x+2*mt*t*cx2+t*t*b.x, y:mt*mt*a.y+2*mt*t*cy2+t*t*b.y});
   }
   return out;
+}
+// 이음새(seam) 주변 점만 국소 스무딩 — 글자 본획은 선명하게 유지
+function smoothSeams(P, seams, radius, passes){
+  if(!seams.length){ return P; }
+  const idx=new Set();
+  seams.forEach(s=>{ for(let i=s-radius;i<=s+radius;i++){ if(i>0 && i<P.length-1){ idx.add(i); } } });
+  let cur=P.slice();
+  for(let k=0;k<passes;k++){
+    const nx=cur.slice();
+    idx.forEach(i=>{ nx[i]={x:(cur[i-1].x+2*cur[i].x+cur[i+1].x)/4, y:(cur[i-1].y+2*cur[i].y+cur[i+1].y)/4}; });
+    cur=nx;
+  }
+  return cur;
 }
 // 글자 내 획을 최근접 이웃 순서로 재정렬 (필요 시 방향 뒤집기) — 백트래킹 최소화
 function orderStrokesNN(list){
@@ -489,7 +514,10 @@ function prepHand(L,seed){
     // 한붓 흘림: 잔획 제거 → 글자 내 최근접 순서로 재정렬 → 가까운 획만 체인 연결(먼 점프=펜 떼기)
     const step=Math.max(2.2, fs*0.022);
     const amp=Math.max(0.3, fs*0.008);
-    const minLen=fs*0.07;
+    const k=curFlow;
+    const minLen=fs*(0.03+0.05*k);
+    const inGap=fs*(curLang==='en' ? 0.3+0.45*k : 0.05+0.4*k);
+    const seamR=Math.round(3+3*k), seamP=1+Math.round(2*k);
     L.scrawlFallback=[];
     const glyphLists=[];
     L.glyphs.forEach((g,gi)=>{
@@ -506,23 +534,45 @@ function prepHand(L,seed){
       if(!arr.length && g.strokes.length===0){ L.scrawlFallback.push(gi); }
       glyphLists.push(orderStrokesNN(arr));
     });
-    const chains=[]; let cur=null;
+    const chains=[]; let cur=null, seams=[];
+    const flush=()=>{ if(cur){ chains.push({pts:cur, seams}); cur=null; seams=[]; } };
     glyphLists.forEach(list=>{
-      list.forEach((pts,si)=>{
-        const gapMax=(si===0 ? fs*0.7 : fs*0.5);   // 글자 간 / 글자 내 연결 한계
+      list.forEach((raw,si)=>{
+        const pts=smoothPts(resamplePts(raw,step),2);   // 획 본체는 또박 수준으로만 다듬음
+        // 글자 간 / 글자 내 연결 한계 — CJK는 자모가 뭉개지지 않게 가까운 획만 연결
+        const gapMax=(si===0 ? fs*0.7 : inGap);
         if(cur){
           const tail=cur[cur.length-1];
           const d=Math.hypot(pts[0].x-tail.x, pts[0].y-tail.y);
-          if(d<=gapMax){ cur.push(...bridgePts(tail,pts[0]), ...pts); }
-          else{ chains.push(cur); cur=pts.slice(); }
+          const fwd=(si!==0) || (pts[0].x-tail.x > -fs*0.15);   // 글자 간은 전진 방향만 연결(역주행 브리지 금지)
+          if(d<=gapMax && fwd){
+            seams.push(cur.length);
+            cur.push(...bridgePts(tail,pts[0]));
+            seams.push(cur.length);
+            cur.push(...pts);
+          }else{ flush(); cur=pts.slice(); }
         }else{ cur=pts.slice(); }
       });
     });
-    if(cur){ chains.push(cur); }
-    L.chains=chains.map(P=>{
+    flush();
+    if(chains.length){
+      // 마지막 획 꼬리 튕김 (사인 특유의 마무리)
+      const P=chains[chains.length-1].pts;
+      if(P.length>=2){
+        const a=P[P.length-2], b=P[P.length-1];
+        let tx=b.x-a.x, ty=b.y-a.y; const l=Math.hypot(tx,ty)||1; tx/=l; ty/=l;
+        const ext=fs*0.35;
+        const c1={x:b.x+tx*ext*0.6, y:b.y+ty*ext*0.6};
+        const e={x:b.x+tx*ext-ty*fs*0.12, y:b.y+ty*ext+tx*fs*0.12};
+        for(let i=1;i<=6;i++){
+          const t=i/6, mt=1-t;
+          P.push({x:mt*mt*b.x+2*mt*t*c1.x+t*t*e.x, y:mt*mt*b.y+2*mt*t*c1.y+t*t*e.y});
+        }
+      }
+    }
+    L.chains=chains.map(ch=>{
       const half=baseHalf*(0.9+rnd()*0.2);
-      let pts=simplify(P, Math.max(1.5, fs*0.015));
-      pts=smoothPts(resamplePts(pts,step),3);
+      let pts=smoothSeams(ch.pts, ch.seams, seamR, seamP);   // 이음새 주변만 뭉갬
       pts=extendEnds(pts,half*1.1);
       pts=jitterPts(pts,amp,rnd);
       return {pts, len:polyLen(pts), half};
@@ -554,6 +604,13 @@ function prepHand(L,seed){
   L.sweepHand=L.sweep ? {pts:samplePath(L.sweep.d,L.sweep.len,64), half:Math.max(2.2,fs*0.055)} : null;
   L.nib=-0.6+(rnd()*0.2-0.1);
   L.handReady=true;
+}
+
+// 흘림(scrawl) 모드의 한글은 골격이 명확한 나눔펜이 결과가 좋음 (독도체 골격은 잔가지가 많아 뭉개짐)
+function pickFamily(){
+  const f=FONTS[curLang][curStyle];
+  if(curPen==='scrawl' && curLang==='ko' && f==='East Sea Dokdo'){ return 'Nanum Pen Script'; }
+  return f;
 }
 
 // ── 폰트 로딩 (캐시) ────────────────────────────────────────────
@@ -826,7 +883,7 @@ function drawPen(x,y){
 function animate(){
   const name=(document.getElementById('name').value||'이름').trim();
   const s=STYLES.find(x=>x.key===curStyle);
-  const family=FONTS[curLang][curStyle];
+  const family=pickFamily();
   const id=++animId;
 
   // 로딩 표시
@@ -1021,7 +1078,7 @@ function renderStatic(g){
 function showStatic(){
   animId++;
   // 폰트가 이미 캐시돼 있으면 벡터 완성본, 아니면 CSS 폰트로 즉시 미리보기
-  const family=FONTS[curLang][curStyle];
+  const family=pickFamily();
   if(fontCache[family]){
     const s=STYLES.find(x=>x.key===curStyle);
     const name=(document.getElementById('name').value||'이름').trim();
