@@ -8,7 +8,7 @@
 <!-- 언어별 무료 손글씨 폰트 (Google Fonts, 상업 이용 가능) — 타이핑 미리보기/폴백용 -->
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Nanum+Brush+Script&family=Nanum+Pen+Script&family=Gaegu:wght@700&family=Dancing+Script:wght@700&family=Great+Vibes&family=UnifrakturMaguntia&family=Yellowtail&family=Zhi+Mang+Xing&family=Long+Cang&family=Yuji+Mai&family=Yuji+Syuku&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Nanum+Brush+Script&family=Nanum+Pen+Script&family=Gaegu:wght@700&family=Dancing+Script:wght@700&family=Great+Vibes&family=UnifrakturMaguntia&family=Yellowtail&family=Zhi+Mang+Xing&family=Long+Cang&family=Yuji+Mai&family=Yuji+Syuku&family=East+Sea+Dokdo&family=Alex+Brush&family=Mr+Dafoe&family=Sacramento&display=swap" rel="stylesheet">
 
 <!-- 벡터 획 애니메이션용: 폰트를 외곽선 경로로 파싱 -->
 <script src="https://cdn.jsdelivr.net/npm/opentype.js@1.3.4/dist/opentype.min.js"></script>
@@ -98,10 +98,10 @@
 <script>
 // ── 언어별 폰트 매핑 (표시 이름) ─────────────────────────────────
 const FONTS = {
-  ko:{ basic:'Nanum Brush Script', cute:'Gaegu', idol:'Nanum Brush Script',
-       ceo:'Nanum Brush Script', politician:'Nanum Brush Script', medieval:'Nanum Brush Script' },
-  en:{ basic:'Dancing Script', cute:'Gaegu', idol:'Great Vibes',
-       ceo:'Yellowtail', politician:'Yellowtail', medieval:'UnifrakturMaguntia' },
+  ko:{ basic:'East Sea Dokdo', cute:'Gaegu', idol:'Nanum Brush Script',
+       ceo:'East Sea Dokdo', politician:'East Sea Dokdo', medieval:'Nanum Brush Script' },
+  en:{ basic:'Alex Brush', cute:'Gaegu', idol:'Mr Dafoe',
+       ceo:'Sacramento', politician:'Mr Dafoe', medieval:'UnifrakturMaguntia' },
   zh:{ basic:'Long Cang', cute:'Long Cang', idol:'Zhi Mang Xing',
        ceo:'Zhi Mang Xing', politician:'Zhi Mang Xing', medieval:'Long Cang' },
   ja:{ basic:'Yuji Syuku', cute:'Yuji Mai', idol:'Yuji Mai',
@@ -122,6 +122,10 @@ const TTF = {
   'Long Cang':'ofl/longcang/LongCang-Regular.ttf',
   'Yuji Syuku':'ofl/yujisyuku/YujiSyuku-Regular.ttf',
   'Yuji Mai':'ofl/yujimai/YujiMai-Regular.ttf',
+  'East Sea Dokdo':'ofl/eastseadokdo/EastSeaDokdo-Regular.ttf',
+  'Alex Brush':'ofl/alexbrush/AlexBrush-Regular.ttf',
+  'Mr Dafoe':'ofl/mrdafoe/MrDafoe-Regular.ttf',
+  'Sacramento':'ofl/sacramento/Sacramento-Regular.ttf',
 };
 
 // ── 스타일 정의 ─────────────────────────────────────────────────
