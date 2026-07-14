@@ -330,7 +330,7 @@ function buildLayout(font, name, s, withStrokes){
     m.translateSelf(g.cx,gcy); m.rotateSelf(rotDeg); m.scaleSelf(sc); m.translateSelf(-g.cx,-gcy);
     g.mat=m;
   });
-  const slant=s.slant+(rnd()*2-1)*0.04;
+  const slant=s.slant+(rnd()*2-1)*0.04-0.05;   // 사인 느낌: 앞으로 더 기울임
 
   // ── 글자 간 연결획 (라틴 이름만 자연스러움) ──
   const connectors=[];
@@ -348,7 +348,24 @@ function buildLayout(font, name, s, withStrokes){
     }
   }
 
-  return {fs, cx, cy, slant, glyphs, connectors, w, bh, color:s.color, flourish:s.flourish, deco:s.deco,
+  // ── 관통 가로획(사인 스윕): 이름 아래를 쓸고 오른쪽으로 길게 빠지는 획 ──
+  let minX=1e9,maxX=-1e9,maxY=-1e9;
+  glyphs.forEach(g=>{
+    [[g.left,g.top],[g.right,g.top],[g.left,g.bot],[g.right,g.bot]].forEach(([x,y])=>{
+      const p=g.mat.transformPoint(new DOMPoint(x,y));
+      if(p.x<minX){minX=p.x;} if(p.x>maxX){maxX=p.x;} if(p.y>maxY){maxY=p.y;}
+    });
+  });
+  let sweep=null;
+  if(glyphs.length){
+    const NW=Math.max(1,maxX-minX), baseY=maxY+fs*0.05;
+    const sx=minX-fs*0.18;
+    const ex=Math.min(W-8, maxX+NW*0.45+fs*0.2), ey=baseY-fs*0.28;
+    const d=`M${sx.toFixed(1)} ${baseY.toFixed(1)} C${(minX+NW*0.28).toFixed(1)} ${(baseY+fs*0.10).toFixed(1)} ${(maxX-NW*0.18).toFixed(1)} ${(baseY-fs*0.04).toFixed(1)} ${ex.toFixed(1)} ${ey.toFixed(1)}`;
+    sweep={d, len:Math.max(1,pathLength(d))};
+  }
+
+  return {fs, cx, cy, slant, glyphs, connectors, sweep, w, bh, color:s.color, flourish:s.flourish, deco:s.deco,
           flourishY:cy+bh/2+Math.max(10,fs*0.12)};
 }
 
@@ -370,9 +387,18 @@ function renderSolid(L){
   (L.connectors||[]).forEach(c=>{ if(c){ ctx.stroke(new Path2D(c.d)); } });
   // 글자 (글자별 변형 적용)
   L.glyphs.forEach(g=>{ ctx.save(); if(g.mat){ ctx.transform(g.mat.a,g.mat.b,g.mat.c,g.mat.d,g.mat.e,g.mat.f); } ctx.fill(g.p2d); ctx.restore(); });
-  drawFlourish(L,1);
+  drawSweep(L,1);
   ctx.restore();
   drawDeco(L,1);
+}
+
+// 관통 가로획(사인 스윕) — fp: 0~1 진행도
+function drawSweep(L,fp){
+  if(!L.sweep){ return; }
+  ctx.strokeStyle=L.color; ctx.lineCap='round'; ctx.lineJoin='round';
+  ctx.lineWidth=Math.max(4,L.fs*0.08);
+  if(fp>=1){ ctx.stroke(new Path2D(L.sweep.d)); }
+  else{ ctx.setLineDash([L.sweep.len,L.sweep.len]); ctx.lineDashOffset=L.sweep.len*(1-fp); ctx.stroke(new Path2D(L.sweep.d)); ctx.setLineDash([]); }
 }
 
 // 장식(밑줄/스월/도트) — fp: 0~1 진행도
@@ -450,7 +476,7 @@ function animate(){
     });
     const total=Math.max(1,acc);
     const durName=Math.min(5200, Math.max(1600, 800+total*1.5));
-    const durFlo=550, durAll=durName+durFlo;
+    const durFlo=700, durAll=durName+durFlo;
     const brush=Math.max(4, L.fs*0.36);
     const connBrush=Math.max(2, L.fs*0.06);
     let start=null;
@@ -507,7 +533,15 @@ function animate(){
       }
 
       const floP=Math.min(1, Math.max(0,(el-durName)/durFlo));
-      if(pName>=1){ drawFlourish(L, floP<=0?0.0001:floP); }
+      if(pName>=1 && L.sweep){
+        ctx.lineWidth=Math.max(4,L.fs*0.08);
+        if(floP>=1){ ctx.stroke(new Path2D(L.sweep.d)); }
+        else if(floP>0){
+          const local=L.sweep.len*floP;
+          ctx.setLineDash([L.sweep.len,L.sweep.len]); ctx.lineDashOffset=L.sweep.len-local; ctx.stroke(new Path2D(L.sweep.d)); ctx.setLineDash([]);
+          const pt=pathPointAt(L.sweep.d, local); const sp=rot(pt.x,pt.y,L.cx,L.cy,L.slant); penScreen={x:sp.x,y:sp.y};
+        }
+      }
       ctx.restore();
 
       drawDeco(L, pName>=1?0.5+floP*0.5:0);
