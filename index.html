@@ -168,6 +168,108 @@ measSvg.appendChild(measPath); document.body.appendChild(measSvg);
 function pathLength(d){ measPath.setAttribute('d',d); return measPath.getTotalLength(); }
 function pathPointAt(d,l){ measPath.setAttribute('d',d); return measPath.getPointAtLength(l); }
 
+// ── 스켈레톤(중심선) 추출: 글자를 '그리기' 위한 획 경로 ──────────
+function extractStrokes(p2d, bb){
+  const pad=4;
+  const w=Math.max(3,Math.ceil(bb.width)+pad*2);
+  const h=Math.max(3,Math.ceil(bb.height)+pad*2);
+  const ox=bb.x-pad, oy=bb.y-pad;
+  const tc=document.createElement('canvas'); tc.width=w; tc.height=h;
+  const tg=tc.getContext('2d');
+  tg.translate(-ox,-oy); tg.fillStyle='#000'; tg.fill(p2d);
+  const img=tg.getImageData(0,0,w,h).data;
+  const g=new Uint8Array(w*h);
+  for(let i=0;i<w*h;i++){ g[i]=img[i*4+3]>128?1:0; }
+  zhangSuenThin(g,w,h);
+  const polys=traceSkeleton(g,w,h);
+  const strokes=[];
+  polys.forEach(poly=>{
+    const sp=simplify(poly,1.4);
+    if(sp.length<2){ return; }
+    let d='M'+(sp[0].x+ox).toFixed(1)+' '+(sp[0].y+oy).toFixed(1);
+    for(let i=1;i<sp.length;i++){ d+='L'+(sp[i].x+ox).toFixed(1)+' '+(sp[i].y+oy).toFixed(1); }
+    const len=pathLength(d);
+    if(len>=3){ strokes.push({d,len}); }
+  });
+  // 필순 근사: 시작점 위→아래, 왼→오른
+  strokes.sort((a,b)=>{ const pa=pathPointAt(a.d,0), pb=pathPointAt(b.d,0); return (pa.y-pb.y)||(pa.x-pb.x); });
+  return strokes;
+}
+
+// Zhang-Suen 세선화 (1px 골격)
+function zhangSuenThin(g,w,h){
+  const I=(x,y)=>y*w+x;
+  const N=(x,y)=>[g[I(x,y-1)],g[I(x+1,y-1)],g[I(x+1,y)],g[I(x+1,y+1)],g[I(x,y+1)],g[I(x-1,y+1)],g[I(x-1,y)],g[I(x-1,y-1)]];
+  let changed=true; const clr=[];
+  while(changed){
+    changed=false;
+    for(let step=0;step<2;step++){
+      clr.length=0;
+      for(let y=1;y<h-1;y++){ for(let x=1;x<w-1;x++){
+        if(g[I(x,y)]!==1){ continue; }
+        const n=N(x,y);
+        let B=0; for(let k=0;k<8;k++){ B+=n[k]; }
+        if(B<2||B>6){ continue; }
+        let A=0; for(let k=0;k<8;k++){ if(n[k]===0&&n[(k+1)%8]===1){ A++; } }
+        if(A!==1){ continue; }
+        if(step===0){ if(n[0]*n[2]*n[4]!==0){ continue; } if(n[2]*n[4]*n[6]!==0){ continue; } }
+        else { if(n[0]*n[2]*n[6]!==0){ continue; } if(n[0]*n[4]*n[6]!==0){ continue; } }
+        clr.push(I(x,y));
+      }}
+      if(clr.length){ changed=true; for(const p of clr){ g[p]=0; } }
+    }
+  }
+}
+
+// 골격 픽셀 → 폴리라인(획) 배열
+function traceSkeleton(g,w,h){
+  const I=(x,y)=>y*w+x;
+  const on=(x,y)=> x>=0&&y>=0&&x<w&&y<h&&g[I(x,y)]===1;
+  const nb=(x,y)=>{ const r=[]; for(let dy=-1;dy<=1;dy++){ for(let dx=-1;dx<=1;dx++){ if((dx||dy)&&on(x+dx,y+dy)){ r.push([x+dx,y+dy]); } } } return r; };
+  const deg=new Map(); const pts=[];
+  for(let y=0;y<h;y++){ for(let x=0;x<w;x++){ if(g[I(x,y)]===1){ pts.push([x,y]); deg.set(I(x,y),nb(x,y).length); } } }
+  const seen=new Set();
+  const ek=(a,b)=> a<b? a+'_'+b : b+'_'+a;
+  const polys=[];
+  function walk(sx,sy){
+    let cx=sx,cy=sy; const poly=[{x:cx,y:cy}];
+    while(true){
+      let nx=null;
+      for(const [ax,ay] of nb(cx,cy)){ const k=ek(I(cx,cy),I(ax,ay)); if(!seen.has(k)){ nx=[ax,ay,k]; break; } }
+      if(!nx){ break; }
+      seen.add(nx[2]); cx=nx[0]; cy=nx[1]; poly.push({x:cx,y:cy});
+      if((deg.get(I(cx,cy))||0)!==2){ break; }
+    }
+    return poly;
+  }
+  const starts=pts.filter(([x,y])=>{ const d=deg.get(I(x,y)); return d===1||d>=3; });
+  for(const [x,y] of starts){
+    while(true){
+      let has=false; for(const [ax,ay] of nb(x,y)){ if(!seen.has(ek(I(x,y),I(ax,ay)))){ has=true; break; } }
+      if(!has){ break; }
+      const p=walk(x,y); if(p.length>=2){ polys.push(p); }
+    }
+  }
+  for(const [x,y] of pts){   // 남은 고리(끝점 없는 폐곡선)
+    for(const [ax,ay] of nb(x,y)){ if(!seen.has(ek(I(x,y),I(ax,ay)))){ const p=walk(x,y); if(p.length>=2){ polys.push(p); } break; } }
+  }
+  return polys;
+}
+
+// Douglas-Peucker 단순화
+function simplify(P,eps){
+  if(P.length<3){ return P; }
+  const keep=new Array(P.length).fill(false); keep[0]=keep[P.length-1]=true;
+  const st=[[0,P.length-1]];
+  const perp=(p,a,b)=>{ const dx=b.x-a.x,dy=b.y-a.y,L=Math.hypot(dx,dy)||1; return Math.abs((p.x-a.x)*dy-(p.y-a.y)*dx)/L; };
+  while(st.length){
+    const [a,b]=st.pop(); let dm=0,idx=-1;
+    for(let i=a+1;i<b;i++){ const d=perp(P[i],P[a],P[b]); if(d>dm){ dm=d; idx=i; } }
+    if(dm>eps&&idx>0){ keep[idx]=true; st.push([a,idx],[idx,b]); }
+  }
+  return P.filter((_,i)=>keep[i]);
+}
+
 // ── 폰트 로딩 (캐시) ────────────────────────────────────────────
 const fontCache={};
 function loadFont(family){
@@ -180,7 +282,7 @@ function loadFont(family){
 }
 
 // ── 레이아웃: 이름을 글자별 벡터 경로로 ──────────────────────────
-function buildLayout(font, name, s){
+function buildLayout(font, name, s, withStrokes){
   const cx=W/2, cy=H/2+6;
   // 폭/높이에 맞춰 폰트 크기 축소
   let fs=s.size;
@@ -197,9 +299,12 @@ function buildLayout(font, name, s){
     const d=p.toPathData(2);
     if(!d){ return; }
     measPath.setAttribute('d',d);
-    const bb=measPath.getBBox();
-    glyphs.push({d, len:Math.max(1,pathLength(d)), p2d:new Path2D(d),
-                 top:bb.y, bot:bb.y+bb.height, cx:bb.x+bb.width/2});
+    const gb=measPath.getBBox();
+    const p2d=new Path2D(d);
+    const strokes= withStrokes ? extractStrokes(p2d, gb) : [];
+    let slen=0; strokes.forEach(st=>{ slen+=st.len; });
+    glyphs.push({d, p2d, strokes, strokeLen:slen,
+                 top:gb.y, bot:gb.y+gb.height, cx:gb.x+gb.width/2});
   });
   const w=bb.x2-bb.x1, bh=bb.y2-bb.y1;
   return {fs, cx, cy, slant:s.slant+jitter*0.02, glyphs, w, bh, color:s.color, flourish:s.flourish, deco:s.deco,
@@ -279,15 +384,26 @@ function animate(){
 
   loadFont(family).then(font=>{
     if(id!==animId){ return; }
-    const L=buildLayout(font, name, s);
+    const L=buildLayout(font, name, s, true);
     lastLayout=L; lastStyle=s;
     if(!L.glyphs.length){ renderSolid(L); return; }
 
-    const total=L.glyphs.reduce((a,g)=>a+g.len,0);
-    const cum=[]; let acc=0;
-    L.glyphs.forEach(g=>{ cum.push(acc); acc+=g.len; });
-    const durName=Math.min(2600, Math.max(900, 600+total*1.1));
+    // 모든 글자의 획(중심선)을 순서대로 펼침
+    const seq=[]; let acc=0;
+    L.glyphs.forEach((g,gi)=>{
+      if(g.strokes.length){
+        g.strokes.forEach(st=>{ seq.push({gi, p2d:new Path2D(st.d), d:st.d, len:st.len, start:acc, end:acc+st.len}); acc+=st.len; });
+      }else{
+        const fb=Math.max(20, g.bot-g.top);   // 획 추출 실패 시 대체
+        seq.push({gi, p2d:null, d:null, len:fb, start:acc, end:acc+fb}); acc+=fb;
+      }
+    });
+    const total=Math.max(1,acc);
+    const glyphEnd=L.glyphs.map(()=>0);
+    seq.forEach(k=>{ glyphEnd[k.gi]=Math.max(glyphEnd[k.gi], k.end); });
+    const durName=Math.min(3200, Math.max(1000, 500+total*0.9));
     const durFlo=350, durAll=durName+durFlo;
+    const brush=Math.max(4, L.fs*0.36);
     let start=null;
 
     function frame(now){
@@ -302,24 +418,28 @@ function animate(){
       ctx.save();
       ctx.translate(L.cx,L.cy); ctx.rotate(L.slant); ctx.translate(-L.cx,-L.cy);
       ctx.fillStyle=L.color; ctx.strokeStyle=L.color;
-      ctx.lineWidth=Math.max(2,L.fs*0.03); ctx.lineJoin='round'; ctx.lineCap='round';
+      ctx.lineJoin='round'; ctx.lineCap='round';
 
       let penLocal=null;
       for(let i=0;i<L.glyphs.length;i++){
-        const g=L.glyphs[i], gStart=cum[i], gEnd=cum[i]+g.len;
-        if(drawn>=gEnd){ ctx.fill(g.p2d); }               // 완성된 글자: 채움
-        else if(drawn>gStart){                             // 그리는 중인 글자: 위→아래로 쓸어내림 (붓 뒤에서만 잉크)
-          const localP=(drawn-gStart)/g.len;
-          const sweepY=g.top+(g.bot-g.top)*localP;
-          ctx.save();
-          ctx.beginPath();
-          ctx.rect(-10000,-10000,20000,sweepY+10000);      // y<=sweepY 영역만 노출
-          ctx.clip();
-          ctx.clip(g.p2d);                                 // 글자 안쪽으로 제한
-          ctx.fill(g.p2d);
-          ctx.restore();
-          penLocal={x:g.cx, y:sweepY};                     // 붓은 잉크 맨 아래(경계)에 위치
+        const g=L.glyphs[i];
+        if(drawn>=glyphEnd[i]){ ctx.fill(g.p2d); continue; }   // 완성된 글자: 솔리드
+        // 그리는 중: 이 글자의 획을 순서대로 굵은 붓으로 (글자 안쪽 클립)
+        ctx.save();
+        ctx.clip(g.p2d);
+        ctx.lineWidth=brush;
+        for(const k of seq){
+          if(k.gi!==i || !k.p2d){ continue; }
+          if(drawn>=k.end){
+            ctx.stroke(k.p2d);                                 // 획 완성
+          }else if(drawn>k.start){
+            const local=drawn-k.start;
+            ctx.setLineDash([k.len,k.len]); ctx.lineDashOffset=k.len-local;
+            ctx.stroke(k.p2d); ctx.setLineDash([]);
+            penLocal=pathPointAt(k.d, Math.min(local,k.len));   // 붓 = 획 진행점
+          }
         }
+        ctx.restore();
       }
       // 장식은 글자 다 그린 뒤
       const floP=Math.min(1, Math.max(0,(el-durName)/durFlo));
@@ -365,7 +485,7 @@ function showStatic(){
   if(fontCache[family]){
     const s=STYLES.find(x=>x.key===curStyle);
     const name=(document.getElementById('name').value||'이름').trim();
-    const L=buildLayout(fontCache[family], name, s); lastLayout=L; lastStyle=s;
+    const L=buildLayout(fontCache[family], name, s, false); lastLayout=L; lastStyle=s;
     if(L.glyphs.length){ renderSolid(L); return; }
   }
   renderStatic(ctx);
