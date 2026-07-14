@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>AI 손글씨 사인 (영어) ✍️</title>
+<script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.19.2/dist/ort.min.js"></script>
+<style>
+  body{margin:0;font-family:"Malgun Gothic","Segoe UI",sans-serif;background:linear-gradient(160deg,#f4f1ff,#ffeef6);color:#2b2340;padding:24px}
+  .wrap{max-width:860px;margin:0 auto}
+  h1{font-size:24px;text-align:center;margin:4px 0}
+  .sub{text-align:center;color:#8a82a3;font-size:13px;margin:0 0 18px}
+  .card{background:#fff;border:1px solid #e7e2f5;border-radius:18px;padding:20px;box-shadow:0 8px 30px rgba(90,60,180,.08);margin-bottom:16px}
+  label{font-weight:700;font-size:13px;color:#5b5375}
+  input[type=text]{width:100%;padding:14px 16px;font-size:18px;border:2px solid #e7e2f5;border-radius:12px;outline:none;margin-top:6px}
+  input[type=text]:focus{border-color:#7c5cff}
+  .rowc{display:flex;align-items:center;gap:12px;margin-top:14px;flex-wrap:wrap}
+  canvas{max-width:100%;border-radius:14px;background:repeating-conic-gradient(#faf8ff 0% 25%,#fff 0% 50%) 50%/22px 22px;border:1px solid #e7e2f5}
+  button{padding:12px 20px;border:none;border-radius:12px;font-size:15px;font-weight:700;cursor:pointer;color:#fff;background:#7c5cff}
+  button.ghost{background:#fff;color:#7c5cff;border:2px solid #7c5cff}
+  .status{font-size:13px;color:#8a82a3;min-height:18px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>✍️ AI 손글씨 사인 <span style="font-size:14px;color:#8a82a3">(영어 전용 · 실험)</span></h1>
+  <p class="sub">AI가 이름을 <b>실제 흘림체로 직접 써 내려갑니다</b> (브라우저에서 동작, 서버 없음)</p>
+  <div class="card">
+    <label>영문 이름</label>
+    <input type="text" id="name" value="Alex" maxlength="20" placeholder="예) Alex, Emma, David" />
+    <div class="rowc">
+      <label>흘림 강도</label>
+      <input type="range" id="bias" min="0.1" max="1.0" step="0.1" value="0.6" />
+      <span id="biasv">0.6</span>
+      <span style="flex:1"></span>
+      <span class="status" id="status">모델 준비 중…</span>
+    </div>
+  </div>
+  <div class="card" style="display:flex;flex-direction:column;align-items:center;gap:14px">
+    <canvas id="cv" width="820" height="280"></canvas>
+    <div class="rowc" style="justify-content:center">
+      <button id="gen">✨ 생성</button>
+      <button class="ghost" id="dl">PNG 저장 ⬇</button>
+    </div>
+    <p style="font-size:12px;color:#9a92b0;text-align:center;margin:0">
+      ※ Graves 손글씨 합성 모델(ONNX) · 영어/숫자만 · 한글은 메인 앱(서명체 폰트) 사용
+    </p>
+  </div>
+</div>
+<script>
+ort.env.wasm.numThreads=1;
+ort.env.wasm.wasmPaths="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.19.2/dist/";
+const cv=document.getElementById('cv'), ctx=cv.getContext('2d'), W=cv.width, H=cv.height;
+const statusEl=document.getElementById('status');
+const INK='#1c1830';
+
+// ── Tokenizer ──
+const CHARSET=" !\"#%'()+,-./0123456789:;?ABCDEFGHIJKLMNOPQRSTUVWXYZ[abcdefghijklmnopqrstuvwxyz";
+const charToCode=new Map(); for(let i=0;i<CHARSET.length;i++) charToCode.set(CHARSET[i], i+1);
+const charsetSize=CHARSET.length+1;
+function prepareString(s){
+  const arr=[];
+  for(const ch of s){ const t=charToCode.has(ch)?charToCode.get(ch):0; const oh=new Array(charsetSize).fill(0); oh[t]=1; arr.push(...oh); }
+  return new ort.Tensor('float32', new Float32Array(arr), [1, s.length, charsetSize]);
+}
+function initFeeds(c, bias){
+  return {x:new ort.Tensor('float32',new Float32Array(3),[1,1,3]), c,
+    'w.1':new ort.Tensor('float32',new Float32Array(80),[1,1,80]),
+    'k.1':new ort.Tensor('float32',new Float32Array(10),[1,10]),
+    'h1.1':new ort.Tensor('float32',new Float32Array(400),[1,400]),
+    'c1.1':new ort.Tensor('float32',new Float32Array(400),[1,400]),
+    'h2.1':new ort.Tensor('float32',new Float32Array(400),[1,400]),
+    'c2.1':new ort.Tensor('float32',new Float32Array(400),[1,400]),
+    'h3.1':new ort.Tensor('float32',new Float32Array(400),[1,400]),
+    'c3.1':new ort.Tensor('float32',new Float32Array(400),[1,400]), bias};
+}
+function argmax(a){let m=a[0],mi=0;for(let i=1;i<a.length;i++)if(a[i]>m){m=a[i];mi=i;}return mi;}
+function randomChoice(probs){ let cur=0,p=Array.from(probs);
+  while(cur<p.length-1){ if(Math.random()<p[cur]) return cur; let s=0; for(let i=cur+1;i<p.length;i++)s+=p[i]; for(let i=cur+1;i<p.length;i++)p[i]/=s; cur++; } return cur; }
+function sampleBivar(mu1,mu2,sd1,sd2,ro){
+  const u1=Math.random()||1e-9,u2=Math.random(); const r=Math.sqrt(-2*Math.log(u1));
+  const z1=r*Math.cos(2*Math.PI*u2), z2=r*Math.sin(2*Math.PI*u2);
+  return {x:mu1+sd1*z1, y:mu2+sd2*(ro*z1+Math.sqrt(Math.max(0,1-ro*ro))*z2)};
+}
+function isEnd(phi,u,isEos){ return phi[u-1]>0.8 || (argmax(Array.from(phi))===u-1 && isEos); }
+
+let session=null;
+async function getSession(){
+  if(!session){ session=await ort.InferenceSession.create('./synthesis_network_52.onnx',{executionProviders:['wasm'], graphOptimizationLevel:'disabled'}); }
+  return session;
+}
+async function generate(text, biasVal){
+  const sess=await getSession();
+  const mu=[8.217162132263184,0.1212363988161087,0.0], sd=[42.34926223754883,37.07347869873047,1.0];
+  const c=prepareString(text);
+  const bias=new ort.Tensor('float32',new Float32Array([biasVal]),[1]);
+  let feeds=initFeeds(c,bias);
+  let px=0,py=0; const out=[]; const steps=35*text.length; const u=c.dims[1];
+  for(let i=0;i<steps;i++){
+    const r=await sess.run(feeds);
+    const pi=r.pi.data,m=r.mu.data,s=r.sd.data,ro=r.ro.data,eos=r.eos.data;
+    const comp=randomChoice(pi),nc=pi.length;
+    const smp=sampleBivar(m[comp],m[nc+comp],s[comp],s[nc+comp],ro[comp]);
+    const isEos=eos[0]>0.5?1:0;
+    if(u>=6 && isEnd(r.phi.data,u,isEos)) break;
+    px+=smp.x*sd[0]+mu[0]; py+=smp.y*sd[1]+mu[1];
+    out.push({x:px,y:py,eos:isEos});
+    if(i%12===0) statusEl.textContent=`쓰는 중… ${Math.round(i/steps*100)}%`;
+    const x=new ort.Tensor('float32',new Float32Array([smp.x,smp.y,isEos]),[1,1,3]);
+    feeds={x,c,'w.1':new ort.Tensor('float32',r.w.data,[1,1,80]),'k.1':new ort.Tensor('float32',r.k.data,[1,10]),'h1.1':new ort.Tensor('float32',r.h1.data,[1,400]),'c1.1':new ort.Tensor('float32',r.c1.data,[1,400]),'h2.1':new ort.Tensor('float32',r.h2.data,[1,400]),'c2.1':new ort.Tensor('float32',r.c2.data,[1,400]),'h3.1':new ort.Tensor('float32',r.h3.data,[1,400]),'c3.1':new ort.Tensor('float32',r.c3.data,[1,400]),bias};
+  }
+  return out;
+}
+
+// ── fit + split into pen-down segments ──
+function layout(pts){
+  let minX=1e9,maxX=-1e9,minY=1e9,maxY=-1e9;
+  pts.forEach(p=>{minX=Math.min(minX,p.x);maxX=Math.max(maxX,p.x);minY=Math.min(minY,p.y);maxY=Math.max(maxY,p.y);});
+  const bw=Math.max(1,maxX-minX), bh=Math.max(1,maxY-minY), pad=34;
+  const scale=Math.min((W-2*pad)/bw,(H-2*pad)/bh);
+  const ox=pad-minX*scale+((W-2*pad)-bw*scale)/2, oy=pad-minY*scale+((H-2*pad)-bh*scale)/2;
+  const segs=[]; let cur=[];
+  pts.forEach(p=>{ cur.push({x:p.x*scale+ox, y:p.y*scale+oy}); if(p.eos>0.5){ if(cur.length>=2)segs.push(cur); cur=[]; } });
+  if(cur.length>=2) segs.push(cur);
+  const half=Math.max(3, scale*7);
+  const segLen=segs.map(s=>{let L=0;for(let i=1;i<s.length;i++)L+=Math.hypot(s[i].x-s[i-1].x,s[i].y-s[i-1].y);return L;});
+  return {segs, segLen, total:segLen.reduce((a,b)=>a+b,0)||1, half};
+}
+function ribbon(seg, maxHalf, progress){
+  const cum=[0]; let total=0;
+  for(let i=1;i<seg.length;i++){ total+=Math.hypot(seg[i].x-seg[i-1].x,seg[i].y-seg[i-1].y); cum.push(total); }
+  if(total<=0) return null;
+  const target=Math.max(0,Math.min(1,progress))*total;
+  const P=[];
+  for(let i=0;i<seg.length;i++){ if(cum[i]<=target){ P.push({x:seg[i].x,y:seg[i].y,c:cum[i]}); }
+    else{ const a=seg[i-1], f=(target-cum[i-1])/((cum[i]-cum[i-1])||1); P.push({x:a.x+(seg[i].x-a.x)*f,y:a.y+(seg[i].y-a.y)*f,c:target}); break; } }
+  if(P.length<2) return P[0]||null;
+  const n=P.length, Lo=[], Ro=[], nib=-0.6, contrast=0.35;
+  for(let i=0;i<n;i++){
+    const a=P[Math.max(0,i-1)], b=P[Math.min(n-1,i+1)];
+    let tx=b.x-a.x, ty=b.y-a.y; const tl=Math.hypot(tx,ty)||1; tx/=tl; ty/=tl;
+    const nx=-ty, ny=tx, t=P[i].c/total;
+    const taper=Math.max(0.08, Math.min(1, t/0.1, (1-t)/0.1));
+    const mod=contrast+(1-contrast)*Math.abs(Math.sin(Math.atan2(ty,tx)-nib));
+    const hw=maxHalf*Math.sqrt(taper)*mod;
+    Lo.push({x:P[i].x+nx*hw,y:P[i].y+ny*hw}); Ro.push({x:P[i].x-nx*hw,y:P[i].y-ny*hw});
+  }
+  ctx.beginPath(); ctx.moveTo(Lo[0].x,Lo[0].y);
+  for(let i=1;i<n;i++) ctx.lineTo(Lo[i].x,Lo[i].y);
+  for(let i=n-1;i>=0;i--) ctx.lineTo(Ro[i].x,Ro[i].y);
+  ctx.closePath(); ctx.fill();
+  return P[n-1];
+}
+function renderAt(L, p){
+  ctx.clearRect(0,0,W,H); ctx.fillStyle=INK;
+  const target=p*L.total; let acc=0, tip=null;
+  for(let i=0;i<L.segs.length;i++){ const s0=acc,s1=acc+L.segLen[i];
+    if(target>=s1){ ribbon(L.segs[i], L.half, 1); }
+    else if(target>s0){ tip=ribbon(L.segs[i], L.half, (target-s0)/L.segLen[i]); break; }
+    acc=s1; }
+  if(tip){ ctx.font='28px "Segoe UI Emoji"'; ctx.textAlign='left'; ctx.textBaseline='bottom'; ctx.fillText('🖌️', tip.x-4, tip.y+14); }
+}
+let lastLayout=null, raf=0;
+function animateDraw(L){
+  cancelAnimationFrame(raf); lastLayout=L;
+  const dur=Math.min(3000, 900+L.total*1.2), t0=performance.now();
+  (function step(now){ const p=Math.min(1,(now-t0)/dur); renderAt(L,p);
+    if(p<1) raf=requestAnimationFrame(step); else renderAt(L,1);
+  })(t0);
+}
+
+document.getElementById('bias').addEventListener('input',e=>document.getElementById('biasv').textContent=e.target.value);
+// 가로로 충분히 전진했는지 검증 (붕괴 감지)
+function isGood(pts){
+  if(pts.length<5) return false;
+  let minX=1e9,maxX=-1e9,minY=1e9,maxY=-1e9;
+  pts.forEach(p=>{minX=Math.min(minX,p.x);maxX=Math.max(maxX,p.x);minY=Math.min(minY,p.y);maxY=Math.max(maxY,p.y);});
+  const w=maxX-minX, h=maxY-minY;
+  return w>80 && w>1.4*h;   // 정상 필기는 가로로 넓음
+}
+async function generateGood(text, bias){
+  for(let a=0;a<6;a++){
+    if(a>0) statusEl.textContent=`다시 쓰는 중… (${a+1}번째 시도)`;
+    const pts=await generate(text, bias);
+    if(isGood(pts)) return pts;
+  }
+  return null;
+}
+async function run(){
+  const text=(document.getElementById('name').value||'Alex').trim();
+  const bias=parseFloat(document.getElementById('bias').value);
+  document.getElementById('gen').disabled=true; statusEl.textContent='쓰는 중… 0%';
+  try{
+    const pts=await generateGood(text, bias);
+    if(!pts){ statusEl.textContent='생성이 잘 안 됐어요. 다시 눌러주세요.'; return; }
+    const L=layout(pts); animateDraw(L);
+    statusEl.textContent=`완성! (${pts.length} 포인트)`;
+  }catch(e){ statusEl.textContent='오류: '+e; }
+  finally{ document.getElementById('gen').disabled=false; }
+}
+document.getElementById('gen').onclick=run;
+document.getElementById('dl').onclick=()=>{ if(lastLayout) renderAt(lastLayout,1); const a=document.createElement('a'); a.download='ai_sign.png'; a.href=cv.toDataURL('image/png'); a.click(); };
+getSession().then(()=>{ statusEl.textContent='준비 완료 — 생성을 눌러보세요'; run(); });
+</script>
+</body>
+</html>
