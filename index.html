@@ -135,6 +135,12 @@ const STYLES = [
 ];
 
 let curLang='ko', curStyle='basic', jitter=0;
+let variationSeed=null;   // null=이름 기반 고정 사인, 숫자=랜덤 변형
+
+// 시드 기반 난수 (같은 시드 → 같은 사인)
+function hashStr(s){ let h=2166136261>>>0; for(let i=0;i<s.length;i++){ h^=s.charCodeAt(i); h=Math.imul(h,16777619); } return h>>>0; }
+function mulberry32(a){ return function(){ a|=0; a=a+0x6D2B79F5|0; let t=Math.imul(a^a>>>15,1|a); t=t+Math.imul(t^t>>>7,61|t)^t; return ((t^t>>>14)>>>0)/4294967296; }; }
+function isLatin(s){ return /^[A-Za-z .'\-]+$/.test(s); }
 
 // ── UI ──────────────────────────────────────────────────────────
 const grid=document.getElementById('styleGrid');
@@ -142,14 +148,14 @@ STYLES.forEach((s,i)=>{
   const d=document.createElement('div');
   d.className='style'+(i===0?' on':''); d.dataset.key=s.key;
   d.innerHTML=`<div class="nm">${s.nm}</div><div class="ds">${s.ds}</div>`;
-  d.onclick=()=>{curStyle=s.key; document.querySelectorAll('.style').forEach(x=>x.classList.remove('on')); d.classList.add('on'); animate();};
+  d.onclick=()=>{curStyle=s.key; variationSeed=null; document.querySelectorAll('.style').forEach(x=>x.classList.remove('on')); d.classList.add('on'); animate();};
   grid.appendChild(d);
 });
 document.querySelectorAll('#langRow .chip').forEach(c=>{
-  c.onclick=()=>{curLang=c.dataset.lang; document.querySelectorAll('#langRow .chip').forEach(x=>x.classList.remove('on')); c.classList.add('on'); animate();};
+  c.onclick=()=>{curLang=c.dataset.lang; variationSeed=null; document.querySelectorAll('#langRow .chip').forEach(x=>x.classList.remove('on')); c.classList.add('on'); animate();};
 });
-document.getElementById('name').addEventListener('input',showStatic);
-document.getElementById('rnd').onclick=()=>{jitter=(jitter+1)%5; animate();};
+document.getElementById('name').addEventListener('input',()=>{ variationSeed=null; showStatic(); });
+document.getElementById('rnd').onclick=()=>{ variationSeed=Math.floor(Math.random()*2147483647); animate(); };
 document.getElementById('replay').onclick=animate;
 
 // ── 캔버스 ──────────────────────────────────────────────────────
@@ -304,10 +310,45 @@ function buildLayout(font, name, s, withStrokes){
     const strokes= withStrokes ? extractStrokes(p2d, gb) : [];
     let slen=0; strokes.forEach(st=>{ slen+=st.len; });
     glyphs.push({d, p2d, strokes, strokeLen:slen,
-                 top:gb.y, bot:gb.y+gb.height, cx:gb.x+gb.width/2});
+                 top:gb.y, bot:gb.y+gb.height, left:gb.x, right:gb.x+gb.width, cx:gb.x+gb.width/2});
   });
   const w=bb.x2-bb.x1, bh=bb.y2-bb.y1;
-  return {fs, cx, cy, slant:s.slant+jitter*0.02, glyphs, w, bh, color:s.color, flourish:s.flourish, deco:s.deco,
+
+  // ── 고유성: 시드 기반으로 글자별 기울기/크기/위치를 살짝 변형 ──
+  const seed=(variationSeed==null ? hashStr(name+'|'+s.key+'|'+curLang) : variationSeed)>>>0;
+  const rnd=mulberry32(seed);
+  const n=glyphs.length;
+  const driftSlope=(rnd()*2-1)*0.7;                 // 베이스라인 상/하 드리프트
+  glyphs.forEach((g,i)=>{
+    const gcy=(g.top+g.bot)/2;
+    const rotDeg=(rnd()*2-1)*6.0;                   // ±6°
+    const sc=1+(rnd()*2-1)*0.07;                    // ±7%
+    const dx=(rnd()*2-1)*fs*0.03;
+    const dy=(rnd()*2-1)*fs*0.05 + driftSlope*(i-(n-1)/2)*fs*0.05;
+    const m=new DOMMatrix();
+    m.translateSelf(dx,dy);
+    m.translateSelf(g.cx,gcy); m.rotateSelf(rotDeg); m.scaleSelf(sc); m.translateSelf(-g.cx,-gcy);
+    g.mat=m;
+  });
+  const slant=s.slant+(rnd()*2-1)*0.04;
+
+  // ── 글자 간 연결획 (라틴 이름만 자연스러움) ──
+  const connectors=[];
+  if(isLatin(name)){
+    for(let i=0;i<n-1;i++){
+      const a=glyphs[i], b=glyphs[i+1];
+      const ae=a.mat.transformPoint(new DOMPoint(a.right, a.bot-fs*0.16));
+      const be=b.mat.transformPoint(new DOMPoint(b.left,  b.bot-fs*0.16));
+      const gap=be.x-ae.x;
+      if(gap>-fs*0.1 && gap<fs*1.3){
+        const mx=(ae.x+be.x)/2, my=Math.max(ae.y,be.y)+fs*0.12;
+        const d=`M${ae.x.toFixed(1)} ${ae.y.toFixed(1)} Q${mx.toFixed(1)} ${my.toFixed(1)} ${be.x.toFixed(1)} ${be.y.toFixed(1)}`;
+        connectors.push({d, len:Math.max(1,pathLength(d))});
+      }else{ connectors.push(null); }
+    }
+  }
+
+  return {fs, cx, cy, slant, glyphs, connectors, w, bh, color:s.color, flourish:s.flourish, deco:s.deco,
           flourishY:cy+bh/2+Math.max(10,fs*0.12)};
 }
 
@@ -323,8 +364,12 @@ function renderSolid(L){
   ctx.clearRect(0,0,W,H);
   ctx.save();
   ctx.translate(L.cx,L.cy); ctx.rotate(L.slant); ctx.translate(-L.cx,-L.cy);
-  ctx.fillStyle=L.color;
-  L.glyphs.forEach(g=>ctx.fill(g.p2d));
+  ctx.fillStyle=L.color; ctx.strokeStyle=L.color; ctx.lineJoin='round'; ctx.lineCap='round';
+  // 연결획 (글자 아래층)
+  ctx.lineWidth=Math.max(2,L.fs*0.06);
+  (L.connectors||[]).forEach(c=>{ if(c){ ctx.stroke(new Path2D(c.d)); } });
+  // 글자 (글자별 변형 적용)
+  L.glyphs.forEach(g=>{ ctx.save(); if(g.mat){ ctx.transform(g.mat.a,g.mat.b,g.mat.c,g.mat.d,g.mat.e,g.mat.f); } ctx.fill(g.p2d); ctx.restore(); });
   drawFlourish(L,1);
   ctx.restore();
   drawDeco(L,1);
@@ -388,22 +433,26 @@ function animate(){
     lastLayout=L; lastStyle=s;
     if(!L.glyphs.length){ renderSolid(L); return; }
 
-    // 모든 글자의 획(중심선)을 순서대로 펼침
-    const seq=[]; let acc=0;
+    // 획(중심선) + 연결획을 그리는 순서대로 펼침
+    const items=[]; let acc=0;
+    const glyphStart=L.glyphs.map(()=>Infinity), glyphEnd=L.glyphs.map(()=>0);
     L.glyphs.forEach((g,gi)=>{
+      glyphStart[gi]=acc;
       if(g.strokes.length){
-        g.strokes.forEach(st=>{ seq.push({gi, p2d:new Path2D(st.d), d:st.d, len:st.len, start:acc, end:acc+st.len}); acc+=st.len; });
+        g.strokes.forEach(st=>{ items.push({type:'stroke', gi, p2d:new Path2D(st.d), d:st.d, len:st.len, start:acc, end:acc+st.len}); acc+=st.len; });
       }else{
-        const fb=Math.max(20, g.bot-g.top);   // 획 추출 실패 시 대체
-        seq.push({gi, p2d:null, d:null, len:fb, start:acc, end:acc+fb}); acc+=fb;
+        const fb=Math.max(20, g.bot-g.top);
+        items.push({type:'stroke', gi, p2d:null, d:null, len:fb, start:acc, end:acc+fb}); acc+=fb;
       }
+      glyphEnd[gi]=acc;
+      const c=(L.connectors||[])[gi];
+      if(c){ items.push({type:'conn', p2d:new Path2D(c.d), d:c.d, len:c.len, start:acc, end:acc+c.len}); acc+=c.len; }
     });
     const total=Math.max(1,acc);
-    const glyphEnd=L.glyphs.map(()=>0);
-    seq.forEach(k=>{ glyphEnd[k.gi]=Math.max(glyphEnd[k.gi], k.end); });
     const durName=Math.min(5200, Math.max(1600, 800+total*1.5));
     const durFlo=550, durAll=durName+durFlo;
     const brush=Math.max(4, L.fs*0.36);
+    const connBrush=Math.max(2, L.fs*0.06);
     let start=null;
 
     function frame(now){
@@ -417,31 +466,46 @@ function animate(){
       ctx.setTransform(1,0,0,1,0,0); ctx.clearRect(0,0,W,H);
       ctx.save();
       ctx.translate(L.cx,L.cy); ctx.rotate(L.slant); ctx.translate(-L.cx,-L.cy);
-      ctx.fillStyle=L.color; ctx.strokeStyle=L.color;
-      ctx.lineJoin='round'; ctx.lineCap='round';
+      ctx.fillStyle=L.color; ctx.strokeStyle=L.color; ctx.lineJoin='round'; ctx.lineCap='round';
 
-      let penLocal=null;
+      let penScreen=null;
+
+      // 연결획 (글자 아래층, 회전만 적용)
+      ctx.lineWidth=connBrush;
+      for(const k of items){
+        if(k.type!=='conn'){ continue; }
+        if(drawn>=k.end){ ctx.stroke(k.p2d); }
+        else if(drawn>k.start){
+          const local=drawn-k.start;
+          ctx.setLineDash([k.len,k.len]); ctx.lineDashOffset=k.len-local; ctx.stroke(k.p2d); ctx.setLineDash([]);
+          const pt=pathPointAt(k.d, Math.min(local,k.len)); const sp=rot(pt.x,pt.y,L.cx,L.cy,L.slant); penScreen={x:sp.x,y:sp.y};
+        }
+      }
+
+      // 글자 (글자별 변형 적용)
       for(let i=0;i<L.glyphs.length;i++){
         const g=L.glyphs[i];
-        if(drawn>=glyphEnd[i]){ ctx.fill(g.p2d); continue; }   // 완성된 글자: 솔리드
-        // 그리는 중: 이 글자의 획을 순서대로 굵은 붓으로 (글자 안쪽 클립)
+        if(drawn<glyphStart[i]){ continue; }
         ctx.save();
-        ctx.clip(g.p2d);
-        ctx.lineWidth=brush;
-        for(const k of seq){
-          if(k.gi!==i || !k.p2d){ continue; }
-          if(drawn>=k.end){
-            ctx.stroke(k.p2d);                                 // 획 완성
-          }else if(drawn>k.start){
-            const local=drawn-k.start;
-            ctx.setLineDash([k.len,k.len]); ctx.lineDashOffset=k.len-local;
-            ctx.stroke(k.p2d); ctx.setLineDash([]);
-            penLocal=pathPointAt(k.d, Math.min(local,k.len));   // 붓 = 획 진행점
+        if(g.mat){ ctx.transform(g.mat.a,g.mat.b,g.mat.c,g.mat.d,g.mat.e,g.mat.f); }
+        if(drawn>=glyphEnd[i]){
+          ctx.fill(g.p2d);                                     // 완성된 글자: 솔리드
+        }else{
+          ctx.clip(g.p2d); ctx.lineWidth=brush;                // 그리는 중: 획별 굵은 붓
+          for(const k of items){
+            if(k.type!=='stroke' || k.gi!==i || !k.p2d){ continue; }
+            if(drawn>=k.end){ ctx.stroke(k.p2d); }
+            else if(drawn>k.start){
+              const local=drawn-k.start;
+              ctx.setLineDash([k.len,k.len]); ctx.lineDashOffset=k.len-local; ctx.stroke(k.p2d); ctx.setLineDash([]);
+              const pt=pathPointAt(k.d, Math.min(local,k.len));
+              const m=ctx.getTransform(); const sp=m.transformPoint(new DOMPoint(pt.x,pt.y)); penScreen={x:sp.x,y:sp.y};
+            }
           }
         }
         ctx.restore();
       }
-      // 장식은 글자 다 그린 뒤
+
       const floP=Math.min(1, Math.max(0,(el-durName)/durFlo));
       if(pName>=1){ drawFlourish(L, floP<=0?0.0001:floP); }
       ctx.restore();
@@ -449,7 +513,7 @@ function animate(){
       drawDeco(L, pName>=1?0.5+floP*0.5:0);
 
       if(el<durAll){
-        if(penLocal){ const pp=rot(penLocal.x,penLocal.y,L.cx,L.cy,L.slant); drawPen(pp.x,pp.y); }
+        if(penScreen){ drawPen(penScreen.x,penScreen.y); }
         requestAnimationFrame(frame);
       }else{
         renderSolid(L);   // 깔끔한 최종본
