@@ -35,6 +35,9 @@
       <span style="flex:1"></span>
       <span class="status" id="status">준비 중…</span>
     </div>
+    <div class="rowc">
+      <label><input type="checkbox" id="sig" checked /> 사인 스타일 (기울기 + 관통 가로획)</label>
+    </div>
   </div>
   <div class="card" style="display:flex;flex-direction:column;align-items:center;gap:14px">
     <canvas id="cv" width="820" height="280"></canvas>
@@ -115,16 +118,37 @@ async function generate(text, biasVal){
 }
 
 // ── fit + split into pen-down segments ──
-function layout(pts){
+function layout(pts, sig){
   let minX=1e9,maxX=-1e9,minY=1e9,maxY=-1e9;
   pts.forEach(p=>{minX=Math.min(minX,p.x);maxX=Math.max(maxX,p.x);minY=Math.min(minY,p.y);maxY=Math.max(maxY,p.y);});
   const bw=Math.max(1,maxX-minX), bh=Math.max(1,maxY-minY), pad=34;
-  const scale=Math.min((W-2*pad)/bw,(H-2*pad)/bh);
-  const ox=pad-minX*scale+((W-2*pad)-bw*scale)/2, oy=pad-minY*scale+((H-2*pad)-bh*scale)/2;
+  const availW=(sig?0.68:1)*(W-2*pad);                    // 사인 스타일이면 오른쪽에 스윕 자리 확보
+  const scale=Math.min(availW/bw,(H-2*pad)/bh);
+  const ox = sig ? (pad+6-minX*scale) : (pad-minX*scale+((W-2*pad)-bw*scale)/2);
+  const oy = pad-minY*scale+((H-2*pad)-bh*scale)/2 - (sig? scale*bh*0.06 : 0);
   const segs=[]; let cur=[];
   pts.forEach(p=>{ cur.push({x:p.x*scale+ox, y:p.y*scale+oy}); if(p.eos>0.5){ if(cur.length>=2)segs.push(cur); cur=[]; } });
   if(cur.length>=2) segs.push(cur);
   const half=Math.max(3, scale*7);
+
+  // ── 사인 패턴: 이름 아래를 관통하며 오른쪽으로 빠지는 가로획(연장선) ──
+  if(sig){
+    const inkL=pad+6, inkR=inkL+bw*scale, inkB=maxY*scale+oy;
+    const baseY=inkB+Math.max(9, scale*bh*0.06);
+    const sx0=inkL-8, sxEnd=Math.min(W-pad*0.6, inkR+(W-2*pad)*0.26);
+    const cx=(sx0+sxEnd)/2, cyb=baseY+scale*bh*0.05, ey=baseY-scale*bh*0.34;
+    const seg=[], N=46;
+    for(let i=0;i<=N;i++){ const t=i/N, mt=1-t;
+      const x=mt*mt*sx0 + 2*mt*t*cx + t*t*sxEnd;
+      const y=mt*mt*baseY + 2*mt*t*cyb + t*t*ey;
+      seg.push({x,y}); }
+    segs.push(seg);
+  }
+
+  // ── 사인 패턴: 전체 기울기 ──
+  if(sig){ const a=-0.12, ccx=W/2, ccy=H/2;
+    segs.forEach(s=>s.forEach(p=>{ const dx=p.x-ccx, dy=p.y-ccy; p.x=ccx+dx*Math.cos(a)-dy*Math.sin(a); p.y=ccy+dx*Math.sin(a)+dy*Math.cos(a); })); }
+
   const segLen=segs.map(s=>{let L=0;for(let i=1;i<s.length;i++)L+=Math.hypot(s[i].x-s[i-1].x,s[i].y-s[i-1].y);return L;});
   return {segs, segLen, total:segLen.reduce((a,b)=>a+b,0)||1, half};
 }
@@ -162,7 +186,7 @@ function renderAt(L, p){
     acc=s1; }
   if(tip){ ctx.font='28px "Segoe UI Emoji"'; ctx.textAlign='left'; ctx.textBaseline='bottom'; ctx.fillText('🖌️', tip.x-4, tip.y+14); }
 }
-let lastLayout=null, raf=0;
+let lastLayout=null, lastPts=null, raf=0;
 function animateDraw(L){
   cancelAnimationFrame(raf); lastLayout=L;
   const dur=Math.min(3000, 900+L.total*1.2), t0=performance.now();
@@ -172,6 +196,7 @@ function animateDraw(L){
 }
 
 document.getElementById('bias').addEventListener('input',e=>document.getElementById('biasv').textContent=e.target.value);
+document.getElementById('sig').addEventListener('change',()=>{ if(lastPts){ const L=layout(lastPts, document.getElementById('sig').checked); animateDraw(L); } });
 // 가로로 충분히 전진했는지 검증 (붕괴 감지)
 function isGood(pts){
   if(pts.length<5) return false;
@@ -195,7 +220,8 @@ async function run(){
   try{
     const pts=await generateGood(text, bias);
     if(!pts){ statusEl.textContent='생성이 잘 안 됐어요. 다시 눌러주세요.'; return; }
-    const L=layout(pts); animateDraw(L);
+    lastPts=pts;
+    const L=layout(pts, document.getElementById('sig').checked); animateDraw(L);
     statusEl.textContent=`완성! (${pts.length} 포인트)`;
   }catch(e){ statusEl.textContent='오류: '+e; }
   finally{ document.getElementById('gen').disabled=false; }
