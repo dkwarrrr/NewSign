@@ -24,22 +24,22 @@
 <body>
 <div class="wrap">
   <h1>✍️ AI 손글씨 사인 <span style="font-size:14px;color:#8a82a3">(영어 전용 · 실험)</span></h1>
-  <p class="sub">AI가 이름을 <b>실제 흘림체로 직접 써 내려갑니다</b> (브라우저에서 동작, 서버 없음)</p>
+  <p class="sub">AI가 이름을 <b>실제 흘림체로 직접 써 내려갑니다</b> · 🔒 내 PC 브라우저에서 실행 · 무료(서버·요금 없음)</p>
   <div class="card">
     <label>영문 이름</label>
     <input type="text" id="name" value="Alex" maxlength="20" placeholder="예) Alex, Emma, David" />
     <div class="rowc">
       <label>흘림 강도</label>
-      <input type="range" id="bias" min="0.1" max="1.0" step="0.1" value="0.6" />
-      <span id="biasv">0.6</span>
+      <input type="range" id="bias" min="0.1" max="1.0" step="0.1" value="0.7" />
+      <span id="biasv">0.7</span>
       <span style="flex:1"></span>
-      <span class="status" id="status">모델 준비 중…</span>
+      <span class="status" id="status">준비 중…</span>
     </div>
   </div>
   <div class="card" style="display:flex;flex-direction:column;align-items:center;gap:14px">
     <canvas id="cv" width="820" height="280"></canvas>
     <div class="rowc" style="justify-content:center">
-      <button id="gen">✨ 생성</button>
+      <button id="gen">✍️ AI 손글씨 만들기</button>
       <button class="ghost" id="dl">PNG 저장 ⬇</button>
     </div>
     <p style="font-size:12px;color:#9a92b0;text-align:center;margin:0">
@@ -97,7 +97,7 @@ async function generate(text, biasVal){
   const c=prepareString(text);
   const bias=new ort.Tensor('float32',new Float32Array([biasVal]),[1]);
   let feeds=initFeeds(c,bias);
-  let px=0,py=0; const out=[]; const steps=35*text.length; const u=c.dims[1];
+  let px=0,py=0; const out=[]; const steps=Math.min(300, 40*text.length); const u=c.dims[1];
   for(let i=0;i<steps;i++){
     const r=await sess.run(feeds);
     const pi=r.pi.data,m=r.mu.data,s=r.sd.data,ro=r.ro.data,eos=r.eos.data;
@@ -107,7 +107,7 @@ async function generate(text, biasVal){
     if(u>=6 && isEnd(r.phi.data,u,isEos)) break;
     px+=smp.x*sd[0]+mu[0]; py+=smp.y*sd[1]+mu[1];
     out.push({x:px,y:py,eos:isEos});
-    if(i%12===0) statusEl.textContent=`쓰는 중… ${Math.round(i/steps*100)}%`;
+    if(i%12===0) statusEl.textContent=`AI가 그리는 중… ${Math.round(i/steps*100)}%`;
     const x=new ort.Tensor('float32',new Float32Array([smp.x,smp.y,isEos]),[1,1,3]);
     feeds={x,c,'w.1':new ort.Tensor('float32',r.w.data,[1,1,80]),'k.1':new ort.Tensor('float32',r.k.data,[1,10]),'h1.1':new ort.Tensor('float32',r.h1.data,[1,400]),'c1.1':new ort.Tensor('float32',r.c1.data,[1,400]),'h2.1':new ort.Tensor('float32',r.h2.data,[1,400]),'c2.1':new ort.Tensor('float32',r.c2.data,[1,400]),'h3.1':new ort.Tensor('float32',r.h3.data,[1,400]),'c3.1':new ort.Tensor('float32',r.c3.data,[1,400]),bias};
   }
@@ -178,7 +178,7 @@ function isGood(pts){
   let minX=1e9,maxX=-1e9,minY=1e9,maxY=-1e9;
   pts.forEach(p=>{minX=Math.min(minX,p.x);maxX=Math.max(maxX,p.x);minY=Math.min(minY,p.y);maxY=Math.max(maxY,p.y);});
   const w=maxX-minX, h=maxY-minY;
-  return w>80 && w>1.4*h;   // 정상 필기는 가로로 넓음
+  return pts.length>=25 && w>60 && w>1.2*h;   // 정상 필기는 가로로 넓음
 }
 async function generateGood(text, bias){
   for(let a=0;a<6;a++){
@@ -191,7 +191,7 @@ async function generateGood(text, bias){
 async function run(){
   const text=(document.getElementById('name').value||'Alex').trim();
   const bias=parseFloat(document.getElementById('bias').value);
-  document.getElementById('gen').disabled=true; statusEl.textContent='쓰는 중… 0%';
+  document.getElementById('gen').disabled=true; statusEl.textContent='AI가 그리는 중… 0%';
   try{
     const pts=await generateGood(text, bias);
     if(!pts){ statusEl.textContent='생성이 잘 안 됐어요. 다시 눌러주세요.'; return; }
@@ -205,7 +205,7 @@ document.getElementById('dl').onclick=()=>{ if(lastLayout) renderAt(lastLayout,1
 if(location.protocol==='file:'){
   statusEl.textContent='⚠️ 파일로 직접 열면 안 됩니다. http로 접속하세요(GitHub Pages 또는 로컬 서버).';
 }else{
-  getSession().then(()=>{ statusEl.textContent='준비 완료 — 생성을 눌러보세요'; run(); })
+  getSession().then(()=>{ statusEl.textContent='준비 완료 — 버튼을 눌러보세요 (내 PC에서 실행 · 무료)'; run(); })
     .catch(e=>{ statusEl.textContent='모델 로드 실패: '+e; });
 }
 </script>
