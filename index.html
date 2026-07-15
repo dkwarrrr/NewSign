@@ -675,7 +675,7 @@ function buildLayout(font, name){
     if(chains.length){
       let li=0, bx=-1e9;   // 꼬리는 가장 오른쪽에서 끝나는 체인에 (뒤 글자 관통 방지)
       chains.forEach((c,i)=>{ const e=c.pts[c.pts.length-1]; if(e.x>bx){ bx=e.x; li=i; } });
-      if(!idol){ appendTail(chains[li], fs*(sport?1.2:0.7), 0, true); }   // 아이돌st는 스월이 마무리 담당
+      if(!idol){ appendTail(chains[li], fs*(sport?1.2:0.7), 0, 'right'); }   // 아이돌st는 스월이 마무리 담당
     }
   }else{
     // ── 한글/CJK 루틴: 재정렬 + 접선/고리 브리지 연결 ──
@@ -694,14 +694,15 @@ function buildLayout(font, name){
       glyphLists.push(orderStrokesNN(arr));
     });
     const bat=lastHasBatchim(name);
-    if(bat && glyphLists.length){
-      // 마지막 글자는 받침(가장 아래 획)에서 끝나도록 재배치 → 꼬리가 받침에서 나감
+    if(bat!==null && glyphLists.length){
+      // 마지막 글자는 가장 아래 획에서 끝나도록 재배치 → 받침 꼬리 또는 모음 내리긋기가 거기서 나감
       const list=glyphLists[glyphLists.length-1];
       if(list.length>1){
         let bi=0, by=-1e9;
         list.forEach((s,i)=>{ const y=Math.max(s[0].y, s[s.length-1].y); if(y>by){ by=y; bi=i; } });
         const s=list.splice(bi,1)[0];
-        if(s[0].x>s[s.length-1].x){ s.reverse(); }   // 오른쪽으로 나가며 끝나게
+        if(bat){ if(s[0].x>s[s.length-1].x){ s.reverse(); } }        // 받침: 오른쪽으로 나가며 끝나게
+        else{ if(s[0].y>s[s.length-1].y){ s.reverse(); } }           // 모음: 아래에서 끝나게
         list.push(s);
       }
     }
@@ -725,21 +726,24 @@ function buildLayout(font, name){
       });
     });
     flush();
-    if(chains.length && bat && !idol){ appendTail(chains[chains.length-1], fs*(sport?1.35:0.85), 0, true); }   // 꼬리는 받침에만 (아이돌st는 스월이 담당)
+    if(chains.length && !idol && bat!==null){   // 아이돌st는 스월이 마무리 담당
+      if(bat){ appendTail(chains[chains.length-1], fs*(sport?1.35:0.85), 0, 'right'); }        // 받침: 오른쪽 꼬리
+      else{ appendTail(chains[chains.length-1], fs*(sport?1.1:0.75), 0, 'down'); }             // 모음 끝: 아래로 길게 내리긋기
+    }
   }
   // 꼬리획: 펜이 떨어지는 모든 끝에 가늘어지며 빠지는 꼬리, 마지막은 길게 (사인 마무리)
-  function appendTail(ch, ext, curl, directed){
+  function appendTail(ch, ext, curl, dir){
     const P=ch.pts;
     if(P.length<2 || ext<=0){ return; }
     const a=P[P.length-2], b=P[P.length-1];
     let tx2=b.x-a.x, ty2=b.y-a.y; const l=Math.hypot(tx2,ty2)||1; tx2/=l; ty2/=l;
     const out=[];
-    if(directed){
-      // 마지막 긴 꼬리: 출발은 획 방향, 끝은 항상 오른쪽으로 흘러 빠짐
-      const e={x:b.x+ext, y:b.y-ext*0.18};
+    if(dir==='right' || dir==='down'){
+      // 마지막 긴 꼬리: 출발은 획 방향, 끝은 오른쪽(받침) 또는 아래(모음 마무리)로 흘러 빠짐
+      const e=(dir==='right') ? {x:b.x+ext, y:b.y-ext*0.18} : {x:b.x-ext*0.22, y:b.y+ext};
       const arm=Math.min(ext*0.35, 30);
       const c1={x:b.x+tx2*arm, y:b.y+ty2*arm};
-      const c2={x:e.x-ext*0.45, y:e.y+ext*0.05};
+      const c2=(dir==='right') ? {x:e.x-ext*0.45, y:e.y+ext*0.05} : {x:e.x+ext*0.16, y:e.y-ext*0.45};
       const n=Math.max(10, Math.round(ext/3));
       for(let i=1;i<=n;i++){
         const t=i/n, mt=1-t;
