@@ -461,23 +461,40 @@ function buildLayout(font, name){
     });
   });
   flush();
-  if(chains.length){
-    // 마지막 획 꼬리 튕김 (끝으로 갈수록 얇게)
-    const last=chains[chains.length-1];
-    const P=last.pts;
-    if(P.length>=2){
-      const a=P[P.length-2], b=P[P.length-1];
-      let tx2=b.x-a.x, ty2=b.y-a.y; const l=Math.hypot(tx2,ty2)||1; tx2/=l; ty2/=l;
-      const ext=fs*0.32;
-      const c1={x:b.x+tx2*ext*0.6, y:b.y+ty2*ext*0.6};
-      const e={x:b.x+tx2*ext-ty2*fs*0.1, y:b.y+ty2*ext+tx2*fs*0.1};
-      for(let i=1;i<=6;i++){
-        const t=i/6, mt=1-t;
-        P.push({x:mt*mt*b.x+2*mt*t*c1.x+t*t*e.x, y:mt*mt*b.y+2*mt*t*c1.y+t*t*e.y});
-        last.wf.push(1-t*0.5);
+  // 꼬리획: 펜이 떨어지는 모든 끝에 가늘어지며 빠지는 꼬리, 마지막은 길게 (사인 마무리)
+  function appendTail(ch, ext, curl, directed){
+    const P=ch.pts;
+    if(P.length<2 || ext<=0){ return; }
+    const a=P[P.length-2], b=P[P.length-1];
+    let tx2=b.x-a.x, ty2=b.y-a.y; const l=Math.hypot(tx2,ty2)||1; tx2/=l; ty2/=l;
+    const out=[];
+    if(directed){
+      // 마지막 긴 꼬리: 출발은 획 방향, 끝은 항상 오른쪽으로 흘러 빠짐
+      const e={x:b.x+ext, y:b.y-ext*0.18};
+      const arm=Math.min(ext*0.35, 30);
+      const c1={x:b.x+tx2*arm, y:b.y+ty2*arm};
+      const c2={x:e.x-ext*0.45, y:e.y+ext*0.05};
+      const n=Math.max(10, Math.round(ext/3));
+      for(let i=1;i<=n;i++){
+        const t=i/n, mt=1-t;
+        out.push({x:mt*mt*mt*b.x+3*mt*mt*t*c1.x+3*mt*t*t*c2.x+t*t*t*e.x,
+                  y:mt*mt*mt*b.y+3*mt*mt*t*c1.y+3*mt*t*t*c2.y+t*t*t*e.y});
+      }
+    }else{
+      const c1={x:b.x+tx2*ext*0.55, y:b.y+ty2*ext*0.55};
+      const e={x:b.x+tx2*ext-ty2*curl, y:b.y+ty2*ext+tx2*curl};
+      const n=Math.max(6, Math.round(ext/3));
+      for(let i=1;i<=n;i++){
+        const t=i/n, mt=1-t;
+        out.push({x:mt*mt*b.x+2*mt*t*c1.x+t*t*e.x, y:mt*mt*b.y+2*mt*t*c1.y+t*t*e.y});
       }
     }
+    out.forEach((p,i)=>{ P.push(p); ch.wf.push(Math.max(0.25, 1-(i+1)/out.length*0.75)); });
   }
+  chains.forEach((ch,i)=>{
+    const lastCh=(i===chains.length-1);
+    appendTail(ch, lastCh? fs*0.85 : fs*0.24, lastCh? 0 : fs*0.08, lastCh);
+  });
   const nib=-0.6+(rnd()*0.2-0.1);
   const handChains=chains.map(ch=>{
     const half=baseHalf*(0.95+rnd()*0.15);
