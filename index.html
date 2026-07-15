@@ -57,6 +57,8 @@ const TTF_BASE='https://cdn.jsdelivr.net/gh/google/fonts@main/';
 const TTF = {
   'Nanum Pen Script':'ofl/nanumpenscript/NanumPenScript-Regular.ttf',
   'Alex Brush':'ofl/alexbrush/AlexBrush-Regular.ttf',
+  'Sacramento':'ofl/sacramento/Sacramento-Regular.ttf',
+  'Dancing Script':'ofl/dancingscript/DancingScript%5Bwght%5D.ttf',
   'Long Cang':'ofl/longcang/LongCang-Regular.ttf',
   'Yuji Syuku':'ofl/yujisyuku/YujiSyuku-Regular.ttf',
 };
@@ -64,7 +66,7 @@ function detectFont(name){
   if(/[가-힣ㄱ-ㆎ]/.test(name)){ return 'Nanum Pen Script'; }
   if(/[぀-ヿ]/.test(name)){ return 'Yuji Syuku'; }
   if(/[一-鿿]/.test(name)){ return 'Long Cang'; }
-  return 'Alex Brush';
+  return 'Dancing Script';   // 획 굵기가 일정해 골격이 깨끗함 (Alex Brush는 장식 대문자가 뭉개짐)
 }
 function isLatinName(name){ return !/[가-힣ㄱ-ㆎ぀-ヿ一-鿿]/.test(name); }
 // 마지막 글자의 받침 유무: true/false, 한글이 아니면 null
