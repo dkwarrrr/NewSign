@@ -411,8 +411,29 @@ function emphasizeCluster(arr, fs, k){
   if(kEff<=1.05){ return; }
   arr.forEach((s,i)=>{
     if(!inC[i]){ return; }
-    for(const p of s){ p.x=ax+(p.x-ax)*kEff; p.y=ay+(p.y-ay)*kEff; }
+    let q=s.map(p=>({x:ax+(p.x-ax)*kEff, y:ay+(p.y-ay)*kEff}));
+    q=smoothPts(resamplePts(q,3),8);   // 확대된 초성은 각을 둥글려 부드럽게
+    arr[i]=q;
   });
+  // 무리가 원형(ㅇ)이면 완전한 원 쪽으로 블렌드 — 각진 다각형 방지 (ㄱ/ㅎ 등은 편차가 커서 제외)
+  const cp=[]; arr.forEach((s,i)=>{ if(inC[i]){ cp.push(...s); } });
+  if(cp.length>8){
+    let mx=0,my=0; cp.forEach(p=>{ mx+=p.x; my+=p.y; }); mx/=cp.length; my/=cp.length;
+    const rs=cp.map(p=>Math.hypot(p.x-mx,p.y-my));
+    const rm=rs.reduce((a,b)=>a+b,0)/rs.length;
+    const sd=Math.sqrt(rs.reduce((a,b)=>a+(b-rm)*(b-rm),0)/rs.length);
+    if(rm>1 && sd/rm<0.22){
+      arr.forEach((s,i)=>{
+        if(!inC[i]){ return; }
+        for(const p of s){
+          const d=Math.hypot(p.x-mx,p.y-my)||1;
+          const t=0.65;
+          p.x=p.x*(1-t)+(mx+(p.x-mx)/d*rm)*t;
+          p.y=p.y*(1-t)+(my+(p.y-my)/d*rm)*t;
+        }
+      });
+    }
+  }
 }
 // 글자 내 획을 최근접 이웃 순서로 재정렬 (필요 시 방향 뒤집기)
 function orderStrokesNN(list){
