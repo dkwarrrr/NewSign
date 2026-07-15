@@ -564,6 +564,21 @@ function doodleStrokes(kind, cx0, cy0, s){
   return S;
 }
 
+// 텍스트(번호/날짜)를 골격 펜 획으로 변환 — 사인과 같은 손글씨 질감
+function textStrokes(font, text, x, y, size){
+  const out=[];
+  font.getPaths(text, x, y, size).forEach(p=>{
+    const d=p.toPathData(2);
+    if(!d){ return; }
+    measPath.setAttribute('d',d);
+    const gb=measPath.getBBox();
+    extractStrokes(new Path2D(d), gb).forEach(st=>{
+      if(st.pts.length>=2){ out.push(smoothPts(resamplePts(st.pts,2),2)); }
+    });
+  });
+  return out;
+}
+
 // ── 폰트 로딩 (캐시) ────────────────────────────────────────────
 const fontCache={};
 function loadFont(family){
@@ -793,6 +808,62 @@ function buildLayout(font, name){
     const fit=Math.min(1, (W-90)/bw, (H-70)/bh);
     const ncx=(mnX+mxX)/2, ncy=(mnY+mxY)/2;
     chains.forEach(c=>{ c.pts=c.pts.map(p=>({x:cx+(p.x-ncx)*fit, y:cy+(p.y-ncy)*fit})); });
+
+    // 선수st 꾸밈 7종: 골프깃발+번호 / 심플 번호 / 번호+별 / 오늘 날짜 / #번호 / 감싸는 원 / 탁구채
+    const dseed=(doodleOverride!=null ? doodleOverride : seed)>>>0;
+    const rnd2=mulberry32((dseed^0x5A17)>>>0);
+    const kind=dseed%7;
+    const num=String(1+Math.floor(rnd2()*99));
+    let mnX2=1e9, mxX2=-1e9, mnY2=1e9, mxY2=-1e9;
+    chains.forEach(c=>c.pts.forEach(p=>{
+      if(p.x<mnX2){mnX2=p.x;} if(p.x>mxX2){mxX2=p.x;}
+      if(p.y<mnY2){mnY2=p.y;} if(p.y>mxY2){mxY2=p.y;}
+    }));
+    const push=(pts,w)=>{ if(pts.length>=2){ chains.push({pts, wf:pts.map(()=>w), seams:[]}); } };
+    const pushText=(txt,x,y,size,w)=>{ textStrokes(font,txt,x,y,size).forEach(s=>push(s,w)); };
+    const rx0=Math.min(mxX2+fs*0.22, W-fs*0.7);
+    if(kind===0){        // 골프 깃발 + 번호
+      const px=rx0+fs*0.15, pt=mnY2-fs*0.02, pb=pt+fs*0.6;
+      push([{x:px,y:pb},{x:px,y:(pt+pb)/2},{x:px,y:pt}], 0.9);
+      push([{x:px,y:pt},{x:px+fs*0.3,y:pt+fs*0.11},{x:px,y:pt+fs*0.22}], 0.9);
+      pushText(num, px-fs*0.05, pb+fs*0.42, fs*0.45, 0.9);
+    }else if(kind===1){  // 심플 번호 (류현진st)
+      pushText(num, rx0, mxY2, fs*0.9, 0.95);
+    }else if(kind===2){  // 번호 + 별 (이강인st)
+      pushText(num, rx0, mxY2-fs*0.05, fs*0.7, 0.9);
+      const adv=font.getAdvanceWidth(num, fs*0.7);
+      const sx0=rx0+adv/2, sy0=mxY2-fs*0.62, R=fs*0.16;
+      const st=[];
+      for(let i=0;i<=5;i++){ const a=-Math.PI/2+i*4*Math.PI/5; st.push({x:sx0+Math.cos(a)*R, y:sy0+Math.sin(a)*R}); }
+      push(st, 0.85);
+    }else if(kind===3){  // 오늘 날짜 작게
+      const dt=new Date();
+      const txt=`${dt.getFullYear()}. ${dt.getMonth()+1}. ${dt.getDate()}`;
+      const tw=font.getAdvanceWidth(txt, fs*0.28);
+      pushText(txt, (mnX2+mxX2)/2-tw/2, Math.min(mxY2+fs*0.32, H-10), fs*0.28, 0.8);
+    }else if(kind===4){  // # + 번호
+      pushText('#'+num, rx0, Math.min(mxY2+fs*0.12, H-12), fs*0.55, 0.85);
+    }else if(kind===5){  // 전체를 감싸는 손그림 원
+      const ecx=(mnX2+mxX2)/2, ecy=(mnY2+mxY2)/2;
+      const rx=Math.min((mxX2-mnX2)/2+fs*0.3, (W-24)/2), ry=Math.min((mxY2-mnY2)/2+fs*0.28, (H-18)/2);
+      const pts=[];
+      for(let i=0;i<=64;i++){
+        const a=-Math.PI*0.7+i/64*Math.PI*2.15;
+        pts.push({x:ecx+Math.cos(a)*rx*(1+0.02*Math.sin(3*a)), y:ecy+Math.sin(a)*ry*(1+0.02*Math.cos(2*a))});
+      }
+      push(pts, 0.8);
+    }else{               // 탁구채 + 공
+      const bx=rx0+fs*0.24, by0=mnY2+fs*0.24, R=fs*0.2;
+      const bl=[];
+      for(let i=0;i<=26;i++){ const a=-Math.PI*0.65+i/26*Math.PI*2.05; bl.push({x:bx+Math.cos(a)*R, y:by0+Math.sin(a)*R}); }
+      push(bl, 0.9);
+      push([{x:bx-fs*0.05,y:by0+R},{x:bx-fs*0.08,y:by0+R+fs*0.22}], 0.9);
+      push([{x:bx+fs*0.05,y:by0+R},{x:bx+fs*0.08,y:by0+R+fs*0.22}], 0.9);
+      push([{x:bx-fs*0.08,y:by0+R+fs*0.22},{x:bx+fs*0.08,y:by0+R+fs*0.22}], 0.9);
+      const ball=[];
+      for(let i=0;i<=12;i++){ const a=i/12*6.28; ball.push({x:bx+fs*0.34+Math.cos(a)*fs*0.05, y:by0-fs*0.12+Math.sin(a)*fs*0.05}); }
+      push(ball, 0.85);
+    }
   }
   if(idol && chains.length){
     // 이름 bbox (스월/낙서 추가 전 기준)
@@ -810,7 +881,7 @@ function buildLayout(font, name){
     const spts=samplePath(d,len,64);
     chains.push({pts:spts, wf:spts.map(()=>0.85), seams:[]});
     // 이름 옆 꾸밈 낙서: 7종 중 선택(기본=이름 시드, 다시 쓰기=랜덤), 이름 우상단 (안 들어가면 좌상단)
-    const kind=(doodleOverride!=null ? doodleOverride : seed%7);
+    const kind=((doodleOverride!=null ? doodleOverride : seed)>>>0)%7;
     const ds=fs*[0.42,0.58,0.58,0.55,0.55,0.45,0.45][kind];   // 얼굴형은 작게, 심볼형은 크게
     const earShift=({0:0.45, 5:0.3, 6:0.25})[kind]||0;        // 귀 달린 낙서는 귀 높이만큼 내림
     let dx=mxX+fs*0.55;
@@ -950,7 +1021,7 @@ document.querySelectorAll('#typeRow .chip').forEach(c=>{
 });
 document.getElementById('name').addEventListener('input', ()=>{ doodleOverride=null; showStatic(); });
 document.getElementById('replay').onclick=()=>{
-  doodleOverride=Math.floor(Math.random()*7);   // 다시 쓸 때마다 낙서 랜덤 교체
+  doodleOverride=Math.floor(Math.random()*2147483647);   // 다시 쓸 때마다 꾸밈 랜덤 교체 (아이돌 낙서/선수 꾸밈 공용 시드)
   animate();
 };
 document.getElementById('dl').onclick=()=>{
