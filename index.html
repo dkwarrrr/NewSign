@@ -620,8 +620,8 @@ function buildLayout(font, name){
   const amp=0;   // 손떨림 없음 — 펜으로 그린 매끈한 선
   const baseHalf=Math.max(1.2, fs*0.023);
   const minLen=fs*0.04;
-  const inGap=fs*(latin ? 0.4 : 0.16);
-  const inGapDown=fs*0.38;   // 아래로 내려가는 이동(받침 등)은 관통 위험이 없어 넓게 허용
+  const inGap=fs*(latin ? 0.4 : 0.36);   // 글자 안 자모끼리는 잇는다 (이의 ㅇ→ㅣ 등)
+  const inGapDown=fs*0.42;   // 아래로 내려가는 이동(받침 등)은 조금 더 관대
   const BRW=0.45;   // 연결선 폭 계수: 글자 획보다 얇게
   const chains=[]; let cur=null, curW=null, seams=[];
   const flush=()=>{ if(cur){ chains.push({pts:cur, wf:curW, seams}); cur=null; curW=null; seams=[]; } };
