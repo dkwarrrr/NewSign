@@ -91,6 +91,7 @@ const cv=document.getElementById('cv'), ctx=cv.getContext('2d');
 const W=cv.width, H=cv.height;
 let animId=0, lastLayout=null;
 let curType='basic';   // basic=기본형, idol=아이돌st(강한 기울기+과장+스월)
+let doodleOverride=null;   // null=이름 시드로 선택, 숫자=다시 쓰기로 뽑은 랜덤 낙서
 
 // 시드 난수: 같은 이름 → 항상 같은 사인
 function hashStr(s){ let h=2166136261>>>0; for(let i=0;i<s.length;i++){ h^=s.charCodeAt(i); h=Math.imul(h,16777619); } return h>>>0; }
@@ -471,7 +472,7 @@ function doodleStrokes(kind, cx0, cy0, s){
     S.push(ell(0,0,0.5,0.48,0,0,6.28,28));
     S.push(dot(-0.17,-0.1)); S.push(dot(0.17,-0.1));
     S.push(ell(0,0.02,0.3,0.28,0,Math.PI*0.15,Math.PI*0.85,14));
-  }else{                 // 나선 스월 + 빠지는 꼬리
+  }else if(kind===4){    // 나선 스월 + 빠지는 꼬리
     const pts=[], n=44;
     for(let i=0;i<=n;i++){
       const a=i/n*Math.PI*4.6;
@@ -480,6 +481,22 @@ function doodleStrokes(kind, cx0, cy0, s){
     }
     pts.push(T({x:0.62,y:0.3})); pts.push(T({x:0.85,y:0.38}));
     S.push(pts);
+  }else if(kind===5){    // 고양이 (세모 귀+수염+ω 입)
+    S.push(ell(0,0,0.5,0.44,0,0,6.28,28));
+    S.push([T({x:-0.42,y:-0.26}), T({x:-0.5,y:-0.72}), T({x:-0.12,y:-0.42})]);
+    S.push([T({x:0.42,y:-0.26}), T({x:0.5,y:-0.72}), T({x:0.12,y:-0.42})]);
+    S.push(dot(-0.17,-0.08)); S.push(dot(0.17,-0.08));
+    S.push(ell(-0.08,0.1,0.08,0.07,0,0,Math.PI,8));
+    S.push(ell(0.08,0.1,0.08,0.07,0,0,Math.PI,8));
+    S.push(line(-0.55,0.0,-0.95,-0.08)); S.push(line(-0.55,0.16,-0.95,0.2));
+    S.push(line(0.55,0.0,0.95,-0.08));   S.push(line(0.55,0.16,0.95,0.2));
+  }else{                 // 곰돌이 (둥근 귀+코+입)
+    S.push(ell(0,0,0.5,0.46,0,0,6.28,28));
+    S.push(ell(-0.34,-0.4,0.15,0.14,0,0,6.28,14));
+    S.push(ell(0.34,-0.4,0.15,0.14,0,0,6.28,14));
+    S.push(dot(-0.17,-0.1)); S.push(dot(0.17,-0.1));
+    S.push(ell(0,0.08,0.08,0.055,0,0,6.28,10));
+    S.push(ell(0,0.2,0.14,0.1,0,Math.PI*0.15,Math.PI*0.85,10));
   }
   return S;
 }
@@ -705,14 +722,15 @@ function buildLayout(font, name){
     const len=Math.max(1,pathLength(d));
     const spts=samplePath(d,len,64);
     chains.push({pts:spts, wf:spts.map(()=>0.85), seams:[]});
-    // 이름 옆 꾸밈 낙서: 시드로 5종 중 선택, 이름 우상단 (안 들어가면 좌상단)
-    const kind=seed%5;
-    const ds=fs*0.42;
+    // 이름 옆 꾸밈 낙서: 7종 중 선택(기본=이름 시드, 다시 쓰기=랜덤), 이름 우상단 (안 들어가면 좌상단)
+    const kind=(doodleOverride!=null ? doodleOverride : seed%7);
+    const ds=fs*[0.42,0.58,0.58,0.55,0.55,0.45,0.45][kind];   // 얼굴형은 작게, 심볼형은 크게
+    const earShift=({0:0.45, 5:0.3, 6:0.25})[kind]||0;        // 귀 달린 낙서는 귀 높이만큼 내림
     let dx=mxX+fs*0.55;
     if(dx+ds>W-10){ dx=mnX-fs*0.55; }
-    let dy=mnY+fs*0.02+(kind===0?ds*0.45:0);      // 토끼는 귀 높이만큼 내림
+    let dy=mnY+fs*0.02+ds*earShift;
     dy+=(dx-cx)*(-slant)*0.9;                      // 기울기 회전으로 떠오르는 만큼 보정
-    dy=Math.max(dy, kind===0? ds*1.35 : ds*0.75);
+    dy=Math.max(dy, ds*(earShift>0 ? 1.35 : 0.75));
     doodleStrokes(kind, dx, dy, ds).forEach(pp=>{
       chains.push({pts:pp, wf:pp.map(()=>0.85), seams:[]});
     });
@@ -843,8 +861,11 @@ document.querySelectorAll('#typeRow .chip').forEach(c=>{
     animate();
   };
 });
-document.getElementById('name').addEventListener('input', showStatic);
-document.getElementById('replay').onclick=animate;
+document.getElementById('name').addEventListener('input', ()=>{ doodleOverride=null; showStatic(); });
+document.getElementById('replay').onclick=()=>{
+  doodleOverride=Math.floor(Math.random()*7);   // 다시 쓸 때마다 낙서 랜덤 교체
+  animate();
+};
 document.getElementById('dl').onclick=()=>{
   if(lastLayout){ renderSolid(lastLayout); }
   const a=document.createElement('a');
