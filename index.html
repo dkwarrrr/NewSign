@@ -305,11 +305,6 @@ function bridgePts(a,b,ta,tb){
   }
   return out;
 }
-// 경유점을 지나는 브리지: 글자 간 이동은 글자 아래로 낮게 돌아 관통을 피함
-function bridgeVia(a,w,b,ta,tb){
-  const flat={x:1,y:0};
-  return [...bridgePts(a,w,ta,flat), {x:w.x,y:w.y}, ...bridgePts(w,b,flat,tb)];
-}
 // 이음새 주변 점만 국소 스무딩
 function smoothSeams(P, seams, radius, passes){
   if(!seams.length){ return P; }
@@ -627,7 +622,6 @@ function buildLayout(font, name){
   const minLen=fs*0.04;
   const inGap=fs*(latin ? 0.4 : 0.16);
   const inGapDown=fs*0.38;   // 아래로 내려가는 이동(받침 등)은 관통 위험이 없어 넓게 허용
-  const glyphGap=fs*1.1;
   const BRW=0.45;   // 연결선 폭 계수: 글자 획보다 얇게
   const chains=[]; let cur=null, curW=null, seams=[];
   const flush=()=>{ if(cur){ chains.push({pts:cur, wf:curW, seams}); cur=null; curW=null; seams=[]; } };
@@ -715,22 +709,14 @@ function buildLayout(font, name){
       list.forEach((raw2,si)=>{
         const pts=smoothPts(resamplePts(raw2,step),2);
         let gapMax=inGap;
-        if(si===0){ gapMax=glyphGap; }
+        if(si===0){ gapMax=-1; }   // 글자와 글자 사이는 잇지 않음 (펜 떼기)
         else if(cur && pts[0].y-cur[cur.length-1].y > fs*0.05){ gapMax=inGapDown; }
         if(cur){
           const tail=cur[cur.length-1];
           const d=Math.hypot(pts[0].x-tail.x, pts[0].y-tail.y);
-          const fwd=(si!==0) || (pts[0].x-tail.x > -fs*0.15);   // 글자 간은 전진 방향만
-          if(d<=gapMax && fwd){
+          if(d<=gapMax){
             seams.push(cur.length);
-            let br;
-            if(si===0 && d>fs*0.45){
-              // 글자 간 긴 이동: 글자 아래 낮은 경유점으로 돌아감 (관통 방지)
-              const w={x:(tail.x+pts[0].x)/2, y:Math.max(tail.y,pts[0].y)+fs*0.08};
-              br=bridgeVia(tail, w, pts[0], tangentAt(cur,true), tangentAt(pts,false));
-            }else{
-              br=bridgePts(tail, pts[0], tangentAt(cur,true), tangentAt(pts,false));
-            }
+            const br=bridgePts(tail, pts[0], tangentAt(cur,true), tangentAt(pts,false));
             cur.push(...br); curW.push(...br.map(()=>BRW));
             seams.push(cur.length);
             cur.push(...pts); curW.push(...pts.map(()=>1));
