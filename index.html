@@ -499,8 +499,8 @@ function buildLayout(font, name){
     });
     glyphLists.forEach(list=>{
       list.forEach((raw2,si)=>{
-        let pts=smoothPts(resamplePts(raw2,step),3);
-        const gapMax=fs*(si===0 ? 0.6 : 0.5);   // 필기체는 넉넉히 이어 펜 떼기 최소화
+        let pts=smoothPts(resamplePts(raw2,step),2);
+        const gapMax=fs*(si===0 ? 0.35 : 0.3);   // 자연스럽게 닿는 조각만 연결 (판독성 우선)
         if(cur){
           const tail=cur[cur.length-1];
           const d0=Math.hypot(pts[0].x-tail.x, pts[0].y-tail.y);
@@ -508,7 +508,10 @@ function buildLayout(font, name){
           if(dn<d0){ pts=pts.slice().reverse(); }
           const d=Math.min(d0,dn);
           const fwd=(si!==0) || (pts[0].x-tail.x > -fs*0.1);
-          if(d<=gapMax && fwd){
+          // 나가는 방향이 목표와 크게 어긋나면(펜 급반전) 연결하지 않고 자연스럽게 펜 떼기
+          const ta=tangentAt(cur,true);
+          const align=(ta&&d>0.01) ? (ta.x*(pts[0].x-tail.x)+ta.y*(pts[0].y-tail.y))/d : 1;
+          if(d<=gapMax && fwd && align>-0.2){
             seams.push(cur.length);
             const br=bridgePts(tail, pts[0], tangentAt(cur,true), tangentAt(pts,false));
             cur.push(...br); curW.push(...br.map(()=>BRW));
