@@ -396,12 +396,13 @@ function buildLayout(font, name){
     glyphs.push({p2d, strokes, top:gb.y, bot:gb.y+gb.height, left:gb.x, right:gb.x+gb.width, cx:gb.x+gb.width/2});
   });
 
-  // 시드 기반 글자별 미세 변형 (같은 이름 = 같은 사인)
+  // 시드 기반 글자별 미세 변형 (같은 이름 = 같은 사인) — 라틴 필기체는 원형 유지
   const seed=hashStr(name)>>>0;
   const rnd=mulberry32(seed);
   const n=glyphs.length;
   const driftSlope=(rnd()*2-1)*0.7;
   glyphs.forEach((g,i)=>{
+    if(latin){ g.mat=new DOMMatrix(); return; }
     const gcy=(g.top+g.bot)/2;
     const rotDeg=(rnd()*2-1)*5.0;
     const sc=1+(rnd()*2-1)*0.06;
@@ -413,73 +414,118 @@ function buildLayout(font, name){
     m.translateSelf(g.cx,gcy); m.rotateSelf(rotDeg); m.scaleSelf(sc); m.translateSelf(-g.cx,-gcy);
     g.mat=m;
   });
-  const slant=(rnd()*2-1)*0.03-0.13;
+  const slant=latin ? -0.06+(rnd()*2-1)*0.015 : (rnd()*2-1)*0.03-0.13;
 
   // ── 한붓 흘림: 잔획 제거 → 재정렬 → 접선/고리 브리지로 전부 연결 ──
   const step=Math.max(2.2, fs*0.022);
-  const amp=Math.max(0.25, fs*0.006);
+  const amp=Math.max(0.25, fs*(latin?0.004:0.006));   // 라틴 필기체는 떨림 최소 (따라 그리기 쉽게)
   const baseHalf=Math.max(1.4, fs*0.028);
   const minLen=fs*0.04;
   const inGap=fs*(latin ? 0.4 : 0.16);
   const inGapDown=fs*0.38;   // 아래로 내려가는 이동(받침 등)은 관통 위험이 없어 넓게 허용
   const glyphGap=fs*1.1;
-  const glyphLists=[];
-  glyphs.forEach((g,gi)=>{
-    const c0x=(g.left+g.right)/2, c0y=(g.top+g.bot)/2;
-    const c0=g.mat.transformPoint(new DOMPoint(c0x,c0y));
-    const arr=[];
-    g.strokes.forEach(st=>{
-      if(st.pts.length<2 || st.len<minLen){ return; }
-      let pts=transformPts(st.pts, g.mat);
-      if(gi===0){ pts=pts.map(p=>({x:c0.x+(p.x-c0.x)*1.12, y:c0.y+(p.y-c0.y)*1.12})); }   // 첫 글자 과장
-      arr.push(pts);
-    });
-    glyphLists.push(orderStrokesNN(arr));
-  });
-  const bat=lastHasBatchim(name);
-  const wantTail=(bat===null) ? true : bat;   // 한글: 받침 있을 때만 꼬리, 그 외: 유지
-  if(bat && glyphLists.length){
-    // 마지막 글자는 받침(가장 아래 획)에서 끝나도록 재배치 → 꼬리가 받침에서 나감
-    const list=glyphLists[glyphLists.length-1];
-    if(list.length>1){
-      let bi=0, by=-1e9;
-      list.forEach((s,i)=>{ const y=Math.max(s[0].y, s[s.length-1].y); if(y>by){ by=y; bi=i; } });
-      const s=list.splice(bi,1)[0];
-      if(s[0].x>s[s.length-1].x){ s.reverse(); }   // 오른쪽으로 나가며 끝나게
-      list.push(s);
-    }
-  }
   const BRW=0.45;   // 연결선 폭 계수: 글자 획보다 얇게
   const chains=[]; let cur=null, curW=null, seams=[];
   const flush=()=>{ if(cur){ chains.push({pts:cur, wf:curW, seams}); cur=null; curW=null; seams=[]; } };
-  glyphLists.forEach(list=>{
-    list.forEach((raw2,si)=>{
-      const pts=smoothPts(resamplePts(raw2,step),2);
-      let gapMax=inGap;
-      if(si===0){ gapMax=glyphGap; }
-      else if(cur && pts[0].y-cur[cur.length-1].y > fs*0.05){ gapMax=inGapDown; }
-      if(cur){
-        const tail=cur[cur.length-1];
-        const d=Math.hypot(pts[0].x-tail.x, pts[0].y-tail.y);
-        const fwd=(si!==0) || (pts[0].x-tail.x > -fs*0.15);   // 글자 간은 전진 방향만
-        if(d<=gapMax && fwd){
-          seams.push(cur.length);
-          let br;
-          if(si===0 && d>fs*0.45){
-            // 글자 간 긴 이동: 글자 아래 낮은 경유점으로 돌아감 (관통 방지)
-            const w={x:(tail.x+pts[0].x)/2, y:Math.max(tail.y,pts[0].y)+fs*0.08};
-            br=bridgeVia(tail, w, pts[0], tangentAt(cur,true), tangentAt(pts,false));
-          }else{
-            br=bridgePts(tail, pts[0], tangentAt(cur,true), tangentAt(pts,false));
-          }
-          cur.push(...br); curW.push(...br.map(()=>BRW));
-          seams.push(cur.length);
-          cur.push(...pts); curW.push(...pts.map(()=>1));
-        }else{ flush(); cur=pts.slice(); curW=pts.map(()=>1); }
-      }else{ cur=pts.slice(); curW=pts.map(()=>1); }
+
+  if(latin){
+    // ── 필기체 루틴: 원형 유지, 글자 안 골격 조각을 가까운 순서로 이어 한 줄 필기체로 ──
+    const glyphLists=[];
+    glyphs.forEach(g=>{
+      const arr=[];
+      g.strokes.forEach(st=>{
+        if(st.pts.length<2 || st.len<minLen){ return; }
+        arr.push(transformPts(st.pts, g.mat));
+      });
+      if(arr.length){ glyphLists.push(orderStrokesNN(arr)); }
     });
-  });
-  flush();
+    glyphLists.forEach(list=>{
+      list.forEach((raw2,si)=>{
+        let pts=smoothPts(resamplePts(raw2,step),2);
+        const gapMax=fs*(si===0 ? 0.55 : 0.3);
+        if(cur){
+          const tail=cur[cur.length-1];
+          const d0=Math.hypot(pts[0].x-tail.x, pts[0].y-tail.y);
+          const dn=Math.hypot(pts[pts.length-1].x-tail.x, pts[pts.length-1].y-tail.y);
+          if(dn<d0){ pts=pts.slice().reverse(); }
+          const d=Math.min(d0,dn);
+          const fwd=(si!==0) || (pts[0].x-tail.x > -fs*0.1);
+          if(d<=gapMax && fwd){
+            seams.push(cur.length);
+            const br=bridgePts(tail, pts[0], tangentAt(cur,true), tangentAt(pts,false));
+            cur.push(...br); curW.push(...br.map(()=>BRW));
+            seams.push(cur.length);
+            cur.push(...pts); curW.push(...pts.map(()=>1));
+          }else{ flush(); cur=pts.slice(); curW=pts.map(()=>1); }
+        }else{
+          if(pts[0].x>pts[pts.length-1].x){ pts=pts.slice().reverse(); }
+          cur=pts.slice(); curW=pts.map(()=>1);
+        }
+      });
+    });
+    flush();
+    if(chains.length){
+      let li=0, bx=-1e9;   // 꼬리는 가장 오른쪽에서 끝나는 체인에 (뒤 글자 관통 방지)
+      chains.forEach((c,i)=>{ const e=c.pts[c.pts.length-1]; if(e.x>bx){ bx=e.x; li=i; } });
+      appendTail(chains[li], fs*0.7, 0, true);
+    }
+  }else{
+    // ── 한글/CJK 루틴: 재정렬 + 접선/고리 브리지 연결 ──
+    const glyphLists=[];
+    glyphs.forEach((g,gi)=>{
+      const c0x=(g.left+g.right)/2, c0y=(g.top+g.bot)/2;
+      const c0=g.mat.transformPoint(new DOMPoint(c0x,c0y));
+      const arr=[];
+      g.strokes.forEach(st=>{
+        if(st.pts.length<2 || st.len<minLen){ return; }
+        let pts=transformPts(st.pts, g.mat);
+        if(gi===0){ pts=pts.map(p=>({x:c0.x+(p.x-c0.x)*1.12, y:c0.y+(p.y-c0.y)*1.12})); }   // 첫 글자 과장
+        arr.push(pts);
+      });
+      glyphLists.push(orderStrokesNN(arr));
+    });
+    const bat=lastHasBatchim(name);
+    if(bat && glyphLists.length){
+      // 마지막 글자는 받침(가장 아래 획)에서 끝나도록 재배치 → 꼬리가 받침에서 나감
+      const list=glyphLists[glyphLists.length-1];
+      if(list.length>1){
+        let bi=0, by=-1e9;
+        list.forEach((s,i)=>{ const y=Math.max(s[0].y, s[s.length-1].y); if(y>by){ by=y; bi=i; } });
+        const s=list.splice(bi,1)[0];
+        if(s[0].x>s[s.length-1].x){ s.reverse(); }   // 오른쪽으로 나가며 끝나게
+        list.push(s);
+      }
+    }
+    glyphLists.forEach(list=>{
+      list.forEach((raw2,si)=>{
+        const pts=smoothPts(resamplePts(raw2,step),2);
+        let gapMax=inGap;
+        if(si===0){ gapMax=glyphGap; }
+        else if(cur && pts[0].y-cur[cur.length-1].y > fs*0.05){ gapMax=inGapDown; }
+        if(cur){
+          const tail=cur[cur.length-1];
+          const d=Math.hypot(pts[0].x-tail.x, pts[0].y-tail.y);
+          const fwd=(si!==0) || (pts[0].x-tail.x > -fs*0.15);   // 글자 간은 전진 방향만
+          if(d<=gapMax && fwd){
+            seams.push(cur.length);
+            let br;
+            if(si===0 && d>fs*0.45){
+              // 글자 간 긴 이동: 글자 아래 낮은 경유점으로 돌아감 (관통 방지)
+              const w={x:(tail.x+pts[0].x)/2, y:Math.max(tail.y,pts[0].y)+fs*0.08};
+              br=bridgeVia(tail, w, pts[0], tangentAt(cur,true), tangentAt(pts,false));
+            }else{
+              br=bridgePts(tail, pts[0], tangentAt(cur,true), tangentAt(pts,false));
+            }
+            cur.push(...br); curW.push(...br.map(()=>BRW));
+            seams.push(cur.length);
+            cur.push(...pts); curW.push(...pts.map(()=>1));
+          }else{ flush(); cur=pts.slice(); curW=pts.map(()=>1); }
+        }else{ cur=pts.slice(); curW=pts.map(()=>1); }
+      });
+    });
+    flush();
+    if(chains.length && bat){ appendTail(chains[chains.length-1], fs*0.85, 0, true); }   // 꼬리는 받침에만
+  }
   // 꼬리획: 펜이 떨어지는 모든 끝에 가늘어지며 빠지는 꼬리, 마지막은 길게 (사인 마무리)
   function appendTail(ch, ext, curl, directed){
     const P=ch.pts;
@@ -510,7 +556,6 @@ function buildLayout(font, name){
     }
     out.forEach((p,i)=>{ P.push(p); ch.wf.push(Math.max(0.25, 1-(i+1)/out.length*0.75)); });
   }
-  if(chains.length && wantTail){ appendTail(chains[chains.length-1], fs*0.85, 0, true); }   // 꼬리는 받침(마지막 획)에만
   const nib=-0.6+(rnd()*0.2-0.1);
   const handChains=chains.map(ch=>{
     const half=baseHalf*(0.95+rnd()*0.15);
