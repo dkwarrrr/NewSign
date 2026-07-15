@@ -848,7 +848,7 @@ function buildLayout(font, name){
       const rx=Math.min((mxX2-mnX2)/2+fs*0.3, (W-24)/2), ry=Math.min((mxY2-mnY2)/2+fs*0.28, (H-18)/2);
       const pts=[];
       for(let i=0;i<=64;i++){
-        const a=-Math.PI*0.7+i/64*Math.PI*2.15;
+        const a=-Math.PI*0.62+i/64*Math.PI*1.82;   // 열린 원: 시작과 끝이 만나지 않음
         pts.push({x:ecx+Math.cos(a)*rx*(1+0.02*Math.sin(3*a)), y:ecy+Math.sin(a)*ry*(1+0.02*Math.cos(2*a))});
       }
       push(pts, 0.8);
