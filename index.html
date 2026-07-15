@@ -430,6 +430,60 @@ function ribbonStroke(pts,maxHalf,progress,nib,contrast,wf){
   return {x:P[n-1].x, y:P[n-1].y};
 }
 
+// ── 아이돌st 꾸밈 낙서 5종: 토끼/하트/별/스마일/나선스월 (모두 펜 선 낙서) ──
+function doodleStrokes(kind, cx0, cy0, s){
+  const T=p=>({x:cx0+p.x*s, y:cy0+p.y*s});
+  const ell=(ex,ey,rx,ry,rot,a0,a1,n)=>{
+    const pts=[], cr=Math.cos(rot), sr=Math.sin(rot);
+    for(let i=0;i<=n;i++){
+      const a=a0+(a1-a0)*i/n;
+      const px=Math.cos(a)*rx, py=Math.sin(a)*ry;
+      pts.push(T({x:ex+px*cr-py*sr, y:ey+px*sr+py*cr}));
+    }
+    return pts;
+  };
+  const line=(x1,y1,x2,y2)=>[T({x:x1,y:y1}), T({x:(x1+x2)/2,y:(y1+y2)/2}), T({x:x2,y:y2})];
+  const dot=(x,y)=>ell(x,y,0.04,0.04,0,0,6.28,8);
+  const S=[];
+  if(kind===0){          // 토끼 얼굴 (귀+수염)
+    S.push(ell(0,0,0.5,0.44,0,0,6.28,28));
+    S.push(ell(-0.22,-0.72,0.13,0.4,-0.15,0,6.28,20));
+    S.push(ell(0.22,-0.72,0.13,0.4,0.15,0,6.28,20));
+    S.push(dot(-0.17,-0.06)); S.push(dot(0.17,-0.06));
+    S.push(line(-0.55,-0.02,-0.95,-0.1)); S.push(line(-0.55,0.14,-0.95,0.18));
+    S.push(line(0.55,-0.02,0.95,-0.1));   S.push(line(0.55,0.14,0.95,0.18));
+  }else if(kind===1){    // 하트
+    const pts=[], n=36;
+    for(let i=0;i<=n;i++){
+      const t=Math.PI*2*i/n;
+      pts.push(T({x:0.5*Math.pow(Math.sin(t),3),
+                  y:-(13*Math.cos(t)-5*Math.cos(2*t)-2*Math.cos(3*t)-Math.cos(4*t))/26}));
+    }
+    S.push(pts);
+  }else if(kind===2){    // 별 (한 획)
+    const pts=[], R=0.58;
+    for(let i=0;i<=5;i++){
+      const a=-Math.PI/2 + i*4*Math.PI/5;
+      pts.push(T({x:Math.cos(a)*R, y:Math.sin(a)*R}));
+    }
+    S.push(pts);
+  }else if(kind===3){    // 스마일
+    S.push(ell(0,0,0.5,0.48,0,0,6.28,28));
+    S.push(dot(-0.17,-0.1)); S.push(dot(0.17,-0.1));
+    S.push(ell(0,0.02,0.3,0.28,0,Math.PI*0.15,Math.PI*0.85,14));
+  }else{                 // 나선 스월 + 빠지는 꼬리
+    const pts=[], n=44;
+    for(let i=0;i<=n;i++){
+      const a=i/n*Math.PI*4.6;
+      const r=0.06+0.10*a/Math.PI;
+      pts.push(T({x:Math.cos(a)*r, y:Math.sin(a)*r*0.9}));
+    }
+    pts.push(T({x:0.62,y:0.3})); pts.push(T({x:0.85,y:0.38}));
+    S.push(pts);
+  }
+  return S;
+}
+
 // ── 폰트 로딩 (캐시) ────────────────────────────────────────────
 const fontCache={};
 function loadFont(family){
@@ -637,16 +691,31 @@ function buildLayout(font, name){
     out.forEach((p,i)=>{ P.push(p); ch.wf.push(Math.max(0.25, 1-(i+1)/out.length*0.75)); });
   }
   if(idol && chains.length){
+    // 이름 bbox (스월/낙서 추가 전 기준)
+    let mnX=1e9, mxX=-1e9, mnY=1e9, mxY=-1e9;
+    chains.forEach(c=>c.pts.forEach(p=>{
+      if(p.x<mnX){mnX=p.x;} if(p.x>mxX){mxX=p.x;}
+      if(p.y<mnY){mnY=p.y;} if(p.y>mxY){mxY=p.y;}
+    }));
     // 아이돌st 스월: 이름 아래를 쓸고 오른쪽 위로 빠지는 곡선
-    let mnX=1e9, mxX=-1e9, mxY=-1e9;
-    chains.forEach(c=>c.pts.forEach(p=>{ if(p.x<mnX){mnX=p.x;} if(p.x>mxX){mxX=p.x;} if(p.y>mxY){mxY=p.y;} }));
     const NW=Math.max(1,mxX-mnX), baseY=mxY+fs*0.14;
     const sx=mnX-fs*0.15;
     const ex=Math.min(W-8, mxX+NW*0.35+fs*0.2), ey=baseY-fs*0.42;
     const d=`M${sx.toFixed(1)} ${baseY.toFixed(1)} C${(mnX+NW*0.3).toFixed(1)} ${(baseY+fs*0.12).toFixed(1)} ${(mxX-NW*0.15).toFixed(1)} ${(baseY-fs*0.02).toFixed(1)} ${ex.toFixed(1)} ${ey.toFixed(1)}`;
     const len=Math.max(1,pathLength(d));
-    const pts=samplePath(d,len,64);
-    chains.push({pts, wf:pts.map(()=>0.85), seams:[]});
+    const spts=samplePath(d,len,64);
+    chains.push({pts:spts, wf:spts.map(()=>0.85), seams:[]});
+    // 이름 옆 꾸밈 낙서: 시드로 5종 중 선택, 이름 우상단 (안 들어가면 좌상단)
+    const kind=seed%5;
+    const ds=fs*0.42;
+    let dx=mxX+fs*0.55;
+    if(dx+ds>W-10){ dx=mnX-fs*0.55; }
+    let dy=mnY+fs*0.02+(kind===0?ds*0.45:0);      // 토끼는 귀 높이만큼 내림
+    dy+=(dx-cx)*(-slant)*0.9;                      // 기울기 회전으로 떠오르는 만큼 보정
+    dy=Math.max(dy, kind===0? ds*1.35 : ds*0.75);
+    doodleStrokes(kind, dx, dy, ds).forEach(pp=>{
+      chains.push({pts:pp, wf:pp.map(()=>0.85), seams:[]});
+    });
   }
   const nib=-0.6+(rnd()*0.2-0.1);
   const handChains=chains.map(ch=>{
