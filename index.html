@@ -376,6 +376,49 @@ function pruneSpurs(list, tol, minKeep){
     return true;
   });
 }
+// 선수st: 첫 글자의 초성(좌상단 획 무리)을 추가 확대 — 이정수의 ㅇ처럼 강조
+function emphasizeCluster(arr, fs, k){
+  if(arr.length<2){ return; }
+  const bb=arr.map(s=>{
+    let x1=1e9,y1=1e9,x2=-1e9,y2=-1e9;
+    s.forEach(p=>{ if(p.x<x1){x1=p.x;} if(p.x>x2){x2=p.x;} if(p.y<y1){y1=p.y;} if(p.y>y2){y2=p.y;} });
+    return {x1,y1,x2,y2};
+  });
+  // 글자 전체 bbox
+  let gx1=1e9,gy1=1e9,gx2=-1e9,gy2=-1e9;
+  bb.forEach(b=>{ if(b.x1<gx1){gx1=b.x1;} if(b.y1<gy1){gy1=b.y1;} if(b.x2>gx2){gx2=b.x2;} if(b.y2>gy2){gy2=b.y2;} });
+  const GW=Math.max(1,gx2-gx1), GH=Math.max(1,gy2-gy1);
+  // 초성 후보: bbox 중심이 글자 좌상단 영역(좌 65% × 상 62%)에 있는 획만
+  const cand=bb.map(b=>{
+    const mx=(b.x1+b.x2)/2, my=(b.y1+b.y2)/2;
+    return (mx<gx1+GW*0.65) && (my<gy1+GH*0.62);
+  });
+  let si=-1, best=1e18;   // 시드: 후보 중 가장 좌상단 획
+  bb.forEach((b,i)=>{ if(!cand[i]){ return; } const v=(b.y1+b.y2)*0.6+(b.x1+b.x2)*0.5; if(v<best){ best=v; si=i; } });
+  if(si<0){ return; }
+  const tol=fs*0.1;
+  const near=(a,b)=>!(a.x1>b.x2+tol || b.x1>a.x2+tol || a.y1>b.y2+tol || b.y1>a.y2+tol);
+  const inC=new Array(arr.length).fill(false); inC[si]=true;
+  let grow=true;
+  while(grow){
+    grow=false;
+    for(let i=0;i<arr.length;i++){
+      if(inC[i] || !cand[i]){ continue; }
+      for(let j=0;j<arr.length;j++){
+        if(inC[j] && near(bb[i],bb[j])){ inC[i]=true; grow=true; break; }
+      }
+    }
+  }
+  let ax=-1e9, ay=-1e9, cx1=1e9, cy1=1e9;   // 앵커: 무리의 우하단 → 좌상(빈 공간) 방향으로 커짐
+  bb.forEach((b,i)=>{ if(inC[i]){ if(b.x2>ax){ax=b.x2;} if(b.y2>ay){ay=b.y2;} if(b.x1<cx1){cx1=b.x1;} if(b.y1<cy1){cy1=b.y1;} } });
+  if((ax-cx1)*(ay-cy1) < GW*GH*0.1){ return; }   // 무리가 너무 작으면(꼭지 조각 등) 강조 포기
+  const kEff=Math.min(k, GW*0.95/Math.max(1,ax-cx1), GH*0.95/Math.max(1,ay-cy1));   // 커져도 글자 크기 안 넘게
+  if(kEff<=1.05){ return; }
+  arr.forEach((s,i)=>{
+    if(!inC[i]){ return; }
+    for(const p of s){ p.x=ax+(p.x-ax)*kEff; p.y=ay+(p.y-ay)*kEff; }
+  });
+}
 // 글자 내 획을 최근접 이웃 순서로 재정렬 (필요 시 방향 뒤집기)
 function orderStrokesNN(list){
   if(list.length<2){ return list; }
@@ -565,13 +608,15 @@ function buildLayout(font, name){
     // 선수st: 첫 글자를 크게, 뒤 글자들은 작게 (베이스라인 기준 스케일 + 간격 재배치)
     let shift=0;
     glyphs.forEach((g,i)=>{
-      const r=(i===0 ? (latin?2.0:1.85) : 0.72);
+      const asp=(g.bot-g.top)/Math.max(1,g.right-g.left);
+      const r=(i===0 ? (latin?2.0:(asp>1.25?1.5:1.85)) : 0.72);   // 세로로 긴 글자는 덜 키움
+      const wide=(i===0 && !latin) ? Math.min(1.5, Math.max(1, asp/1.4)) : 1;   // 세로 긴 글자는 가로를 넓혀 비율 보정
       const w=g.right-g.left;
       const m=new DOMMatrix();
       m.translateSelf(shift,0);
-      m.translateSelf(g.left,g.bot); m.scaleSelf(r); m.translateSelf(-g.left,-g.bot);
+      m.translateSelf(g.left,g.bot); m.scaleSelf(r*wide, r); m.translateSelf(-g.left,-g.bot);
       g.mat=m.multiply(g.mat);
-      shift+=(r-1)*w;
+      shift+=(r*wide-1)*w;
     });
   }
 
@@ -651,6 +696,7 @@ function buildLayout(font, name){
         if(gi===0 && !sport){ const k1=idol?1.2:1.12; pts=pts.map(p=>({x:c0.x+(p.x-c0.x)*k1, y:c0.y+(p.y-c0.y)*k1})); }   // 첫 글자 과장 (선수st는 mat에서 처리)
         arr.push(pts);
       });
+      if(gi===0 && sport){ emphasizeCluster(arr, fs, 1.5); }   // 첫 글자 초성 강조
       glyphLists.push(orderStrokesNN(arr));
     });
     const bat=lastHasBatchim(name);
