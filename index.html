@@ -49,6 +49,7 @@
     <div class="row" id="typeRow">
       <div class="chip on" data-type="basic">기본형</div>
       <div class="chip" data-type="idol">아이돌st ⭐</div>
+      <div class="chip" data-type="sport">선수st ⚽</div>
     </div>
   </div>
 
@@ -558,7 +559,21 @@ function buildLayout(font, name){
     g.mat=m;
   });
   const idol=(curType==='idol');
-  const slant=(latin ? -0.06+(rnd()*2-1)*0.015 : (rnd()*2-1)*0.03-0.13) - (idol? (latin?0.09:0.05) : 0);
+  const sport=(curType==='sport');
+  const slant=(latin ? -0.06+(rnd()*2-1)*0.015 : (rnd()*2-1)*0.03-0.13) - (idol? (latin?0.09:0.05) : 0) - (sport?0.06:0);
+  if(sport){
+    // 선수st: 첫 글자를 크게, 뒤 글자들은 작게 (베이스라인 기준 스케일 + 간격 재배치)
+    let shift=0;
+    glyphs.forEach((g,i)=>{
+      const r=(i===0 ? (latin?2.0:1.85) : 0.72);
+      const w=g.right-g.left;
+      const m=new DOMMatrix();
+      m.translateSelf(shift,0);
+      m.translateSelf(g.left,g.bot); m.scaleSelf(r); m.translateSelf(-g.left,-g.bot);
+      g.mat=m.multiply(g.mat);
+      shift+=(r-1)*w;
+    });
+  }
 
   // ── 한붓 흘림: 잔획 제거 → 재정렬 → 접선/고리 브리지로 전부 연결 ──
   const step=Math.max(2.2, fs*0.022);
@@ -633,7 +648,7 @@ function buildLayout(font, name){
       g.strokes.forEach(st=>{
         if(st.pts.length<2 || st.len<minLen){ return; }
         let pts=transformPts(st.pts, g.mat);
-        if(gi===0){ const k1=idol?1.2:1.12; pts=pts.map(p=>({x:c0.x+(p.x-c0.x)*k1, y:c0.y+(p.y-c0.y)*k1})); }   // 첫 글자 과장
+        if(gi===0 && !sport){ const k1=idol?1.2:1.12; pts=pts.map(p=>({x:c0.x+(p.x-c0.x)*k1, y:c0.y+(p.y-c0.y)*k1})); }   // 첫 글자 과장 (선수st는 mat에서 처리)
         arr.push(pts);
       });
       glyphLists.push(orderStrokesNN(arr));
@@ -709,6 +724,18 @@ function buildLayout(font, name){
       }
     }
     out.forEach((p,i)=>{ P.push(p); ch.wf.push(Math.max(0.25, 1-(i+1)/out.length*0.75)); });
+  }
+  if(sport && chains.length){
+    // 선수st: 첫 글자 확대로 커진 전체를 다시 중앙 정렬 + 화면에 맞게 축소
+    let mnX=1e9, mxX=-1e9, mnY=1e9, mxY=-1e9;
+    chains.forEach(c=>c.pts.forEach(p=>{
+      if(p.x<mnX){mnX=p.x;} if(p.x>mxX){mxX=p.x;}
+      if(p.y<mnY){mnY=p.y;} if(p.y>mxY){mxY=p.y;}
+    }));
+    const bw=Math.max(1,mxX-mnX), bh=Math.max(1,mxY-mnY);
+    const fit=Math.min(1, (W-90)/bw, (H-70)/bh);
+    const ncx=(mnX+mxX)/2, ncy=(mnY+mxY)/2;
+    chains.forEach(c=>{ c.pts=c.pts.map(p=>({x:cx+(p.x-ncx)*fit, y:cy+(p.y-ncy)*fit})); });
   }
   if(idol && chains.length){
     // 이름 bbox (스월/낙서 추가 전 기준)
