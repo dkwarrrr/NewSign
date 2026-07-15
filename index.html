@@ -491,10 +491,7 @@ function buildLayout(font, name){
     }
     out.forEach((p,i)=>{ P.push(p); ch.wf.push(Math.max(0.25, 1-(i+1)/out.length*0.75)); });
   }
-  chains.forEach((ch,i)=>{
-    const lastCh=(i===chains.length-1);
-    appendTail(ch, lastCh? fs*0.85 : fs*0.24, lastCh? 0 : fs*0.08, lastCh);
-  });
+  if(chains.length){ appendTail(chains[chains.length-1], fs*0.85, 0, true); }   // 꼬리는 마지막 획에만
   const nib=-0.6+(rnd()*0.2-0.1);
   const handChains=chains.map(ch=>{
     const half=baseHalf*(0.95+rnd()*0.15);
