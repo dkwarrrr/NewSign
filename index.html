@@ -323,8 +323,8 @@ function orderStrokesNN(list){
   }
   return out;
 }
-// 가변 굵기 리본 펜 — 펜촉 각도에 따른 굵기 변조 + 양끝 테이퍼. progress 0~1, 펜 끝 좌표 반환
-function ribbonStroke(pts,maxHalf,progress,nib,contrast){
+// 가변 굵기 리본 펜 — 펜촉 각도에 따른 굵기 변조 + 양끝 테이퍼 + 점별 폭 계수(wf). progress 0~1, 펜 끝 좌표 반환
+function ribbonStroke(pts,maxHalf,progress,nib,contrast,wf){
   if(!pts||!pts.length){ return null; }
   if(pts.length===1){ ctx.beginPath(); ctx.arc(pts[0].x,pts[0].y,maxHalf*0.7,0,7); ctx.fill(); return pts[0]; }
   const cum=[0]; let total=0;
@@ -345,7 +345,7 @@ function ribbonStroke(pts,maxHalf,progress,nib,contrast){
     const t=P[i].c/total;
     const taper=Math.max(0.3, Math.min(1, t/0.09, (1-t)/0.09));
     const mod=contrast+(1-contrast)*Math.abs(Math.sin(Math.atan2(ty,tx)-nib));
-    const hw=maxHalf*Math.sqrt(taper)*mod;
+    const hw=maxHalf*Math.sqrt(taper)*mod*(wf? (wf[i]!=null?wf[i]:1) : 1);
     Lo.push({x:P[i].x-ty*hw, y:P[i].y+tx*hw}); Ro.push({x:P[i].x+ty*hw, y:P[i].y-tx*hw});
   }
   ctx.beginPath(); ctx.moveTo(Lo[0].x,Lo[0].y);
@@ -430,8 +430,9 @@ function buildLayout(font, name){
     });
     glyphLists.push(orderStrokesNN(arr));
   });
-  const chains=[]; let cur=null, seams=[];
-  const flush=()=>{ if(cur){ chains.push({pts:cur, seams}); cur=null; seams=[]; } };
+  const BRW=0.45;   // 연결선 폭 계수: 글자 획보다 얇게
+  const chains=[]; let cur=null, curW=null, seams=[];
+  const flush=()=>{ if(cur){ chains.push({pts:cur, wf:curW, seams}); cur=null; curW=null; seams=[]; } };
   glyphLists.forEach(list=>{
     list.forEach((raw2,si)=>{
       const pts=smoothPts(resamplePts(raw2,step),2);
@@ -444,23 +445,26 @@ function buildLayout(font, name){
         const fwd=(si!==0) || (pts[0].x-tail.x > -fs*0.15);   // 글자 간은 전진 방향만
         if(d<=gapMax && fwd){
           seams.push(cur.length);
+          let br;
           if(si===0 && d>fs*0.45){
             // 글자 간 긴 이동: 글자 아래 낮은 경유점으로 돌아감 (관통 방지)
             const w={x:(tail.x+pts[0].x)/2, y:Math.max(tail.y,pts[0].y)+fs*0.08};
-            cur.push(...bridgeVia(tail, w, pts[0], tangentAt(cur,true), tangentAt(pts,false)));
+            br=bridgeVia(tail, w, pts[0], tangentAt(cur,true), tangentAt(pts,false));
           }else{
-            cur.push(...bridgePts(tail, pts[0], tangentAt(cur,true), tangentAt(pts,false)));
+            br=bridgePts(tail, pts[0], tangentAt(cur,true), tangentAt(pts,false));
           }
+          cur.push(...br); curW.push(...br.map(()=>BRW));
           seams.push(cur.length);
-          cur.push(...pts);
-        }else{ flush(); cur=pts.slice(); }
-      }else{ cur=pts.slice(); }
+          cur.push(...pts); curW.push(...pts.map(()=>1));
+        }else{ flush(); cur=pts.slice(); curW=pts.map(()=>1); }
+      }else{ cur=pts.slice(); curW=pts.map(()=>1); }
     });
   });
   flush();
   if(chains.length){
-    // 마지막 획 꼬리 튕김
-    const P=chains[chains.length-1].pts;
+    // 마지막 획 꼬리 튕김 (끝으로 갈수록 얇게)
+    const last=chains[chains.length-1];
+    const P=last.pts;
     if(P.length>=2){
       const a=P[P.length-2], b=P[P.length-1];
       let tx2=b.x-a.x, ty2=b.y-a.y; const l=Math.hypot(tx2,ty2)||1; tx2/=l; ty2/=l;
@@ -470,6 +474,7 @@ function buildLayout(font, name){
       for(let i=1;i<=6;i++){
         const t=i/6, mt=1-t;
         P.push({x:mt*mt*b.x+2*mt*t*c1.x+t*t*e.x, y:mt*mt*b.y+2*mt*t*c1.y+t*t*e.y});
+        last.wf.push(1-t*0.5);
       }
     }
   }
@@ -478,29 +483,17 @@ function buildLayout(font, name){
     const half=baseHalf*(0.95+rnd()*0.15);
     let pts=smoothSeams(ch.pts, ch.seams, 3, 2);
     pts=extendEnds(pts, half*1.1);
+    let wf=[ch.wf[0], ...ch.wf, ch.wf[ch.wf.length-1]];
+    for(let p=0;p<3;p++){   // 폭 전이를 부드럽게
+      const nx=wf.slice();
+      for(let i=1;i<wf.length-1;i++){ nx[i]=(wf[i-1]+2*wf[i]+wf[i+1])/4; }
+      wf=nx;
+    }
     pts=jitterPts(pts, amp, rnd);
-    return {pts, len:polyLen(pts), half};
+    return {pts, len:polyLen(pts), half, wf};
   }).filter(c=>c.pts.length>=2 && c.len>2);
 
-  // ── 관통 스윕: 이름 아래를 쓸고 오른쪽으로 빠지는 획 ──
-  let minX=1e9,maxX=-1e9,maxY=-1e9;
-  glyphs.forEach(g=>{
-    [[g.left,g.top],[g.right,g.top],[g.left,g.bot],[g.right,g.bot]].forEach(([x,y])=>{
-      const p=g.mat.transformPoint(new DOMPoint(x,y));
-      if(p.x<minX){minX=p.x;} if(p.x>maxX){maxX=p.x;} if(p.y>maxY){maxY=p.y;}
-    });
-  });
-  let sweep=null;
-  if(glyphs.length){
-    const NW=Math.max(1,maxX-minX), baseY=maxY+fs*0.05;
-    const sx=minX-fs*0.18;
-    const ex=Math.min(W-8, maxX+NW*0.45+fs*0.2), ey=baseY-fs*0.28;
-    const d=`M${sx.toFixed(1)} ${baseY.toFixed(1)} C${(minX+NW*0.28).toFixed(1)} ${(baseY+fs*0.10).toFixed(1)} ${(maxX-NW*0.18).toFixed(1)} ${(baseY-fs*0.04).toFixed(1)} ${ex.toFixed(1)} ${ey.toFixed(1)}`;
-    const len=Math.max(1,pathLength(d));
-    sweep={pts:samplePath(d,len,64), len, half:Math.max(1.8, fs*0.04)};
-  }
-
-  return {fs, cx, cy, slant, chains:handChains, sweep, nib, contrast:0.42, glyphs};
+  return {fs, cx, cy, slant, chains:handChains, nib, contrast:0.42, glyphs};
 }
 
 // 좌표를 (cx,cy) 중심으로 slant 회전
@@ -516,8 +509,7 @@ function renderSolid(L){
   ctx.save();
   ctx.translate(L.cx,L.cy); ctx.rotate(L.slant); ctx.translate(-L.cx,-L.cy);
   ctx.fillStyle=INK;
-  L.chains.forEach(c=>ribbonStroke(c.pts,c.half,1,L.nib,L.contrast));
-  if(L.sweep){ ribbonStroke(L.sweep.pts,L.sweep.half,1,L.nib-0.15,0.25); }
+  L.chains.forEach(c=>ribbonStroke(c.pts,c.half,1,L.nib,L.contrast,c.wf));
   ctx.restore();
 }
 
@@ -544,10 +536,10 @@ function animate(){
     if(!L.chains.length){ renderSolid(L); return; }
 
     const items=[]; let acc=0;
-    L.chains.forEach(ch=>{ items.push({pts:ch.pts, half:ch.half, len:ch.len, start:acc, end:acc+ch.len}); acc+=ch.len; });
+    L.chains.forEach(ch=>{ items.push({pts:ch.pts, half:ch.half, wf:ch.wf, len:ch.len, start:acc, end:acc+ch.len}); acc+=ch.len; });
     const total=Math.max(1,acc);
     const durName=Math.min(5200, Math.max(1600, 800+total*1.5));
-    const durSweep=L.sweep?700:0, durAll=durName+durSweep;
+    const durAll=durName;
     let start=null;
 
     function frame(now){
@@ -564,17 +556,9 @@ function animate(){
       ctx.fillStyle=INK;
       let penScreen=null;
       for(const k of items){
-        if(drawn>=k.end){ ribbonStroke(k.pts,k.half,1,L.nib,L.contrast); }
+        if(drawn>=k.end){ ribbonStroke(k.pts,k.half,1,L.nib,L.contrast,k.wf); }
         else if(drawn>k.start){
-          const tip=ribbonStroke(k.pts,k.half,(drawn-k.start)/k.len,L.nib,L.contrast);
-          if(tip){ penScreen=rot(tip.x,tip.y,L.cx,L.cy,L.slant); }
-        }
-      }
-      const swP=Math.min(1, Math.max(0,(el-durName)/durSweep));
-      if(pName>=1 && L.sweep){
-        if(swP>=1){ ribbonStroke(L.sweep.pts,L.sweep.half,1,L.nib-0.15,0.25); }
-        else if(swP>0){
-          const tip=ribbonStroke(L.sweep.pts,L.sweep.half,swP,L.nib-0.15,0.25);
+          const tip=ribbonStroke(k.pts,k.half,(drawn-k.start)/k.len,L.nib,L.contrast,k.wf);
           if(tip){ penScreen=rot(tip.x,tip.y,L.cx,L.cy,L.slant); }
         }
       }
