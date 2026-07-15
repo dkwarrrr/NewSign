@@ -407,7 +407,7 @@ function emphasizeCluster(arr, fs, k){
   let ax=-1e9, ay=-1e9, cx1=1e9, cy1=1e9;   // 앵커: 무리의 우하단 → 좌상(빈 공간) 방향으로 커짐
   bb.forEach((b,i)=>{ if(inC[i]){ if(b.x2>ax){ax=b.x2;} if(b.y2>ay){ay=b.y2;} if(b.x1<cx1){cx1=b.x1;} if(b.y1<cy1){cy1=b.y1;} } });
   if((ax-cx1)*(ay-cy1) < GW*GH*0.1){ return; }   // 무리가 너무 작으면(꼭지 조각 등) 강조 포기
-  const kEff=Math.min(k, GW*0.95/Math.max(1,ax-cx1), GH*0.95/Math.max(1,ay-cy1));   // 커져도 글자 크기 안 넘게
+  const kEff=Math.min(k, GW*1.2/Math.max(1,ax-cx1), GH*1.2/Math.max(1,ay-cy1));   // 글자 크기의 1.2배까지 허용
   if(kEff<=1.05){ return; }
   arr.forEach((s,i)=>{
     if(!inC[i]){ return; }
@@ -675,7 +675,7 @@ function buildLayout(font, name){
     if(chains.length){
       let li=0, bx=-1e9;   // 꼬리는 가장 오른쪽에서 끝나는 체인에 (뒤 글자 관통 방지)
       chains.forEach((c,i)=>{ const e=c.pts[c.pts.length-1]; if(e.x>bx){ bx=e.x; li=i; } });
-      if(!idol){ appendTail(chains[li], fs*0.7, 0, true); }   // 아이돌st는 스월이 마무리 담당
+      if(!idol){ appendTail(chains[li], fs*(sport?1.2:0.7), 0, true); }   // 아이돌st는 스월이 마무리 담당
     }
   }else{
     // ── 한글/CJK 루틴: 재정렬 + 접선/고리 브리지 연결 ──
@@ -690,7 +690,7 @@ function buildLayout(font, name){
         if(gi===0 && !sport){ const k1=idol?1.2:1.12; pts=pts.map(p=>({x:c0.x+(p.x-c0.x)*k1, y:c0.y+(p.y-c0.y)*k1})); }   // 첫 글자 과장 (선수st는 mat에서 처리)
         arr.push(pts);
       });
-      if(gi===0 && sport){ emphasizeCluster(arr, fs, 1.5); }   // 첫 글자 초성 강조
+      if(gi===0 && sport){ emphasizeCluster(arr, fs, 1.8); }   // 첫 글자 초성 강조
       glyphLists.push(orderStrokesNN(arr));
     });
     const bat=lastHasBatchim(name);
@@ -725,7 +725,7 @@ function buildLayout(font, name){
       });
     });
     flush();
-    if(chains.length && bat && !idol){ appendTail(chains[chains.length-1], fs*0.85, 0, true); }   // 꼬리는 받침에만 (아이돌st는 스월이 담당)
+    if(chains.length && bat && !idol){ appendTail(chains[chains.length-1], fs*(sport?1.35:0.85), 0, true); }   // 꼬리는 받침에만 (아이돌st는 스월이 담당)
   }
   // 꼬리획: 펜이 떨어지는 모든 끝에 가늘어지며 빠지는 꼬리, 마지막은 길게 (사인 마무리)
   function appendTail(ch, ext, curl, directed){
