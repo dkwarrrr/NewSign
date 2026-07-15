@@ -383,10 +383,10 @@ function emphasizeCluster(arr, fs, k){
   let gx1=1e9,gy1=1e9,gx2=-1e9,gy2=-1e9;
   bb.forEach(b=>{ if(b.x1<gx1){gx1=b.x1;} if(b.y1<gy1){gy1=b.y1;} if(b.x2>gx2){gx2=b.x2;} if(b.y2>gy2){gy2=b.y2;} });
   const GW=Math.max(1,gx2-gx1), GH=Math.max(1,gy2-gy1);
-  // 초성 후보: bbox 중심이 글자 좌상단 영역(좌 65% × 상 62%)에 있는 획만
+  // 초성 후보: 왼쪽 세로열(ㅏ/ㅣ형 조합의 초성) 또는 상단 밴드(ㅗ/ㅜ형 조합의 초성)
   const cand=bb.map(b=>{
     const mx=(b.x1+b.x2)/2, my=(b.y1+b.y2)/2;
-    return (mx<gx1+GW*0.65) && (my<gy1+GH*0.62);
+    return (mx<gx1+GW*0.6 && my<gy1+GH*0.88) || (my<gy1+GH*0.4);
   });
   let si=-1, best=1e18;   // 시드: 후보 중 가장 좌상단 획
   bb.forEach((b,i)=>{ if(!cand[i]){ return; } const v=(b.y1+b.y2)*0.6+(b.x1+b.x2)*0.5; if(v<best){ best=v; si=i; } });
@@ -407,7 +407,7 @@ function emphasizeCluster(arr, fs, k){
   let ax=-1e9, ay=-1e9, cx1=1e9, cy1=1e9;   // 앵커: 무리의 우하단 → 좌상(빈 공간) 방향으로 커짐
   bb.forEach((b,i)=>{ if(inC[i]){ if(b.x2>ax){ax=b.x2;} if(b.y2>ay){ay=b.y2;} if(b.x1<cx1){cx1=b.x1;} if(b.y1<cy1){cy1=b.y1;} } });
   if((ax-cx1)*(ay-cy1) < GW*GH*0.1){ return; }   // 무리가 너무 작으면(꼭지 조각 등) 강조 포기
-  const kEff=Math.min(k, GW*1.2/Math.max(1,ax-cx1), GH*1.2/Math.max(1,ay-cy1));   // 글자 크기의 1.2배까지 허용
+  const kEff=Math.min(k, GW*2.2/Math.max(1,ax-cx1), GH*2.2/Math.max(1,ay-cy1));   // 글자 크기의 2.2배까지 허용
   if(kEff<=1.05){ return; }
   arr.forEach((s,i)=>{
     if(!inC[i]){ return; }
@@ -690,7 +690,7 @@ function buildLayout(font, name){
         if(gi===0 && !sport){ const k1=idol?1.2:1.12; pts=pts.map(p=>({x:c0.x+(p.x-c0.x)*k1, y:c0.y+(p.y-c0.y)*k1})); }   // 첫 글자 과장 (선수st는 mat에서 처리)
         arr.push(pts);
       });
-      if(gi===0 && sport){ emphasizeCluster(arr, fs, 1.8); }   // 첫 글자 초성 강조
+      if(gi===0 && sport){ emphasizeCluster(arr, fs, 3.2); }   // 첫 글자 초성 강조 (초성이 사인을 지배)
       glyphLists.push(orderStrokesNN(arr));
     });
     const bat=lastHasBatchim(name);
